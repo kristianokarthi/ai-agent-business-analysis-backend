@@ -1,6 +1,9 @@
 from fastapi import FastAPI
 
-app = FastAPI()
+app = FastAPI(
+    title="AI Business Analyzer API",
+    version="1.0.0",
+)
 
 
 @app.get("/")
