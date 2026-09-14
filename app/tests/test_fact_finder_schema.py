@@ -4,6 +4,7 @@ from pydantic import ValidationError
 from app.schemas.fact_finder import (
     FactFinderInput,
     FactFinderOutput,
+    FactFinderRequest,
 )
 
 
@@ -90,6 +91,24 @@ def test_fact_finder_rejects_unknown_fields():
         FactFinderInput.model_validate(
             invalid_input,
         )
+
+
+
+
+def test_public_request_does_not_accept_documents():
+    public_request = {
+        key: value
+        for key, value in VALID_INPUT.items()
+        if key != "documents"
+    }
+
+    result = FactFinderRequest.model_validate(public_request)
+
+    assert result.company_name == "Coca-Cola"
+    assert result.official_website is not None
+
+    with pytest.raises(ValidationError):
+        FactFinderRequest.model_validate(VALID_INPUT)
 
 
 def test_fact_finder_accepts_valid_output():

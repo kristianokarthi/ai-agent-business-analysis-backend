@@ -12,6 +12,17 @@ class Settings:
         "GROQ_MODEL",
         "openai/gpt-oss-20b",
     )
+    frontend_origins: list[str] = [
+        origin.strip()
+        for origin in os.getenv(
+            "FRONTEND_ORIGINS",
+            (
+                "http://localhost:3000,"
+                "https://ai-business-frontend.vercel.app"
+            ),
+        ).split(",")
+        if origin.strip()
+    ]
 
 
 settings = Settings()

@@ -5,7 +5,13 @@ from app.agents.fact_finder import FactFinderAgent
 from app.schemas.fact_finder import (
     FactFinderAPIResponse,
     FactFinderInput,
+    FactFinderRequest,
 )
+from app.services.source_collector import (
+    SourceCollectionError,
+    collect_official_website,
+)
+
 
 router = APIRouter(
     prefix="/api/agents/fact-finder",
@@ -15,16 +21,36 @@ router = APIRouter(
 
 @router.post("", response_model=FactFinderAPIResponse)
 async def run_fact_finder(
-    request: FactFinderInput,
+    request: FactFinderRequest,
 ) -> FactFinderAPIResponse:
     try:
-        agent = FactFinderAgent()
-        response = await agent.run(request)
+        source = await collect_official_website(
+            str(request.official_website),
+        )
+
+        agent_input = FactFinderInput(
+            company_name=request.company_name,
+            official_website=request.official_website,
+            purpose=request.purpose,
+            follow_up_answers=request.follow_up_answers,
+            documents=[source],
+        )
+
+        response = await FactFinderAgent().run(agent_input)
 
         return FactFinderAPIResponse(
             result=response.data,
             usage=response.usage,
         )
+
+    except SourceCollectionError as error:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "source_collection_failed",
+                "message": str(error),
+            },
+        ) from error
 
     except RateLimitError as error:
         raise HTTPException(
@@ -40,10 +66,8 @@ async def run_fact_finder(
 
     except BadRequestError as error:
         error_code = None
-
         if isinstance(error.body, dict):
-            groq_error = error.body.get("error", {})
-            error_code = groq_error.get("code")
+            error_code = error.body.get("error", {}).get("code")
 
         if error_code == "json_validate_failed":
             raise HTTPException(
@@ -52,7 +76,7 @@ async def run_fact_finder(
                     "error_code": "invalid_llm_json",
                     "message": (
                         "The AI model could not generate a valid "
-                        "structured response. Please retry the request."
+                        "structured response. Please retry."
                     ),
                 },
             ) from error
