@@ -52,6 +52,7 @@ class FactFinderRequest(StrictSchema):
 class FactFinderInput(FactFinderRequest):
     """Internal agent input after the API collects source documents."""
 
+    official_website: HttpUrl | None = None
     documents: list[SourceDocument] = Field(min_length=1)
 
 
