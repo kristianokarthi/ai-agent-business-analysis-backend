@@ -40,17 +40,19 @@ class SourceDocument(StrictSchema):
     content: str = Field(min_length=1)
 
 
-class FactFinderInput(StrictSchema):
-    company_name: str = Field(
-        min_length=2,
-        max_length=200,
-    )
-    official_website: HttpUrl | None = None
+class FactFinderRequest(StrictSchema):
+    """Public request accepted from the Next.js application."""
+
+    company_name: str = Field(min_length=2, max_length=200)
+    official_website: HttpUrl
     purpose: ResearchPurpose
-    follow_up_answers: dict[str, str]
-    documents: list[SourceDocument] = Field(
-        min_length=1,
-    )
+    follow_up_answers: dict[str, str] = Field(default_factory=dict)
+
+
+class FactFinderInput(FactFinderRequest):
+    """Internal agent input after the API collects source documents."""
+
+    documents: list[SourceDocument] = Field(min_length=1)
 
 
 class CompanyIdentity(StrictSchema):
@@ -98,17 +100,12 @@ class FactFinderOutput(StrictSchema):
             fact.statement.strip().lower()
             for fact in self.verified_facts
         }
-
         claim_statements = {
             claim.statement.strip().lower()
             for claim in self.company_claims
         }
 
-        duplicates = verified_statements.intersection(
-            claim_statements
-        )
-
-        if duplicates:
+        if verified_statements.intersection(claim_statements):
             raise ValueError(
                 "A statement cannot appear in both "
                 "verified_facts and company_claims."
