@@ -143,3 +143,22 @@ def test_business_fundamentals_rejects_duplicate_findings():
         match="must not be duplicated",
     ):
         BusinessFundamentalsOutput.model_validate(invalid_output)
+
+
+def test_business_fundamentals_rejects_more_than_15_findings():
+    findings = [
+        {
+            **VALID_OUTPUT["findings"][0],
+            "finding_id": f"finding_{index}",
+            "statement": f"Supported finding {index}.",
+        }
+        for index in range(1, 17)
+    ]
+
+    with pytest.raises(ValidationError):
+        BusinessFundamentalsOutput.model_validate(
+            {
+                **VALID_OUTPUT,
+                "findings": findings,
+            }
+        )
