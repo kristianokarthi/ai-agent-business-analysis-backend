@@ -24,7 +24,10 @@ class StructuredLLMResult(Generic[ResponseModel]):
 
 
 class GroqProvider:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        model: str | None = None,
+    ) -> None:
         if not settings.groq_api_key:
             raise ValueError(
                 "GROQ_API_KEY is missing from environment variables."
@@ -34,7 +37,7 @@ class GroqProvider:
             api_key=settings.groq_api_key,
         )
 
-        self.model = settings.groq_model
+        self.model = model or settings.groq_model
 
     async def generate_structured(
         self,

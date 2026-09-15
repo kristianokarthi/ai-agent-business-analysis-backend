@@ -76,7 +76,9 @@ class CustomerReputationAgent:
         self,
         provider: GroqProvider | None = None,
     ) -> None:
-        self.provider = provider or GroqProvider()
+        self.provider = provider or GroqProvider(
+            model="openai/gpt-oss-120b",
+        )
 
     async def run(
         self,
