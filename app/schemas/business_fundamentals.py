@@ -61,7 +61,7 @@ class BusinessFinding(StrictSchema):
 class BusinessFundamentalsOutput(StrictSchema):
     status: BusinessAnalysisStatus
     company_name: str = Field(min_length=1)
-    findings: list[BusinessFinding]
+    findings: list[BusinessFinding] = Field(max_length=15)
     missing_information: list[str]
     overall_confidence: ConfidenceLevel
 
