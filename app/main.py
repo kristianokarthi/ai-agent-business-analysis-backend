@@ -5,6 +5,9 @@ from app.api.business_fundamentals import (
     router as business_fundamentals_router,
 )
 from app.api.fact_finder import router as fact_finder_router
+from app.api.market_competitor import (
+    router as market_competitor_router,
+)
 from app.api.research import router as research_router
 from app.core.config import settings
 
@@ -24,6 +27,7 @@ app.add_middleware(
 app.include_router(research_router)
 app.include_router(fact_finder_router)
 app.include_router(business_fundamentals_router)
+app.include_router(market_competitor_router)
 
 
 @app.get("/")
