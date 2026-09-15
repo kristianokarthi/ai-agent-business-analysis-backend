@@ -93,7 +93,7 @@ class CustomerReputationAgent:
                 f"{agent_input.model_dump_json(indent=2)}"
             ),
             response_model=CustomerReputationOutput,
-            max_tokens=3000,
+            max_tokens=4000,
             temperature=0,
         )
 

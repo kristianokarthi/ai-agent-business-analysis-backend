@@ -57,14 +57,18 @@ AGGREGATION RULES
 - Record insufficient coverage, source imbalance, and missing audience types
   under missing_information.
 - Lower confidence for small, old, unbalanced, or single-source samples.
+
+OUTPUT LIMITS
+- Keep assessment summaries under 20 words.
+- Return no more than 3 items in each theme section.
+- Return empty arrays for unsupported sections.
+- Before finishing, ensure every required JSON field is present.
 - Always complete the full JSON response.
 
 PRIVACY AND SAFETY
 - Do not include reviewer names, usernames, email addresses, phone numbers,
   account IDs, or other personal information.
-- Do not infer demographic traits, health, intent, or personality.
-- Do not identify or profile individual reviewers.
-
+  
 BOUNDARIES
 - Do not invent reviews, counts, themes, or reputation claims.
 - Do not convert opinions into verified business facts.

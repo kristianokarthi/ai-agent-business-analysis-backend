@@ -60,6 +60,8 @@ class GroqProvider:
             ],
             temperature=temperature,
             max_completion_tokens=max_tokens,
+            reasoning_effort="low",
+            include_reasoning=False,
             response_format={
                 "type": "json_schema",
                 "json_schema": {
