@@ -45,7 +45,9 @@ ALLOWED WORK
 - Make a reasoned inference only when it follows directly from cited
   evidence.
 - Return missing topics under missing_information.
-- Produce no more than 15 concise findings.
+- Produce between 5 and 8 concise findings.
+Return short statements.
+Always complete the entire JSON response..
 
 EVIDENCE RULES
 - Use only verified_facts and company_claims from evidence_pack.
