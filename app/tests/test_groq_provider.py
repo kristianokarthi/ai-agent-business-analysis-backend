@@ -1,7 +1,6 @@
 from app.core.config import settings
 from app.llm.groq_provider import GroqProvider
 
-
 def test_groq_provider_initializes(monkeypatch):
     fake_client = object()
 
@@ -16,6 +15,5 @@ def test_groq_provider_initializes(monkeypatch):
     )
 
     provider = GroqProvider()
-
     assert provider.client is fake_client
     assert provider.model == settings.groq_model
