@@ -12,6 +12,11 @@ class Settings:
         "GROQ_MODEL",
         "openai/gpt-oss-20b",
     )
+    tavily_api_key: str = os.getenv("TAVILY_API_KEY", "")
+    research_tool_test_key: str = os.getenv(
+        "RESEARCH_TOOL_TEST_KEY",
+        "",
+    )
     frontend_origins: list[str] = [
         origin.strip()
         for origin in os.getenv(
