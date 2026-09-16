@@ -1,13 +1,27 @@
 from fastapi import APIRouter, HTTPException
 from groq import BadRequestError, RateLimitError
 
+from app.api.tavily_tools import provider_error_to_http
 from app.agents.market_competitor import (
     InvalidMarketEvidenceReferenceError,
     MarketCompetitorAgent,
 )
+from app.collectors.market_collector import MarketEvidenceCollector
 from app.schemas.market_competitor import (
     MarketCompetitorAPIResponse,
     MarketCompetitorInput,
+)
+from app.schemas.market_evidence import (
+    MarketCollectionStatus,
+    MarketCompetitorResearchResponse,
+    MarketEvidenceCollectionInput,
+)
+from app.search.tavily_provider import (
+    TavilyConfigurationError,
+    TavilyQuotaExceededError,
+    TavilyRateLimitError,
+    TavilyRequestError,
+    TavilyServiceError,
 )
 
 
@@ -15,6 +29,55 @@ router = APIRouter(
     prefix="/api/agents/market-competitor",
     tags=["Agents"],
 )
+
+
+@router.post(
+    "/research",
+    response_model=MarketCompetitorResearchResponse,
+)
+async def research_market_competitors(
+    request: MarketEvidenceCollectionInput,
+) -> MarketCompetitorResearchResponse:
+    """Collect current market sources and run Agent 3 with them."""
+    try:
+        collection = await MarketEvidenceCollector().collect(request)
+    except (
+        TavilyConfigurationError,
+        TavilyQuotaExceededError,
+        TavilyRateLimitError,
+        TavilyRequestError,
+        TavilyServiceError,
+    ) as error:
+        raise provider_error_to_http(error) from error
+
+    if collection.status == MarketCollectionStatus.INSUFFICIENT_SOURCES:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "insufficient_market_sources",
+                "message": (
+                    "No usable market sources were collected, so Agent 3 "
+                    "was not run."
+                ),
+                "warnings": collection.warnings,
+            },
+        )
+
+    agent_response = await run_market_competitor(
+        MarketCompetitorInput(
+            purpose=request.purpose,
+            follow_up_answers=request.follow_up_answers,
+            company_evidence=request.company_evidence,
+            business_fundamentals=request.business_fundamentals,
+            market_documents=collection.market_documents,
+        )
+    )
+
+    return MarketCompetitorResearchResponse(
+        result=agent_response.result,
+        usage=agent_response.usage,
+        collection=collection,
+    )
 
 
 @router.post("", response_model=MarketCompetitorAPIResponse)

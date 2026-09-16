@@ -11,6 +11,7 @@ from app.api.fact_finder import router as fact_finder_router
 from app.api.market_competitor import (
     router as market_competitor_router,
 )
+from app.api.market_evidence import router as market_evidence_router
 from app.api.research import router as research_router
 from app.api.tavily_tools import router as tavily_tools_router
 from app.core.config import settings
@@ -34,6 +35,7 @@ app.include_router(business_fundamentals_router)
 app.include_router(market_competitor_router)
 app.include_router(customer_reputation_router)
 app.include_router(tavily_tools_router)
+app.include_router(market_evidence_router)
 
 
 @app.get("/")
