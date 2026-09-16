@@ -1,9 +1,14 @@
+import asyncio
+
 import pytest
 
 from app.agents.market_competitor import (
     InvalidMarketEvidenceReferenceError,
+    MarketCompetitorAgent,
     validate_market_evidence_references,
 )
+from app.llm.groq_provider import StructuredLLMResult
+from app.schemas.llm import LLMUsage
 from app.schemas.market_competitor import (
     MarketCompetitorInput,
     MarketCompetitorOutput,
@@ -59,3 +64,41 @@ def test_market_evidence_validator_rejects_wrong_company():
             output,
             agent_input,
         )
+
+
+def test_empty_completed_analysis_is_marked_insufficient():
+    agent_input = MarketCompetitorInput.model_validate(VALID_INPUT)
+    empty_output = MarketCompetitorOutput.model_validate(
+        {
+            **VALID_OUTPUT,
+            "competitors": [],
+            "entry_barriers": [],
+            "market_trends": [],
+            "market_gaps": [],
+            "competitive_risks": [],
+        }
+    )
+
+    class FakeProvider:
+        async def generate_structured(self, **_):
+            return StructuredLLMResult(
+                data=empty_output,
+                usage=LLMUsage(
+                    agent_name="market_competitor",
+                    provider="groq",
+                    model="test-model",
+                    input_tokens=100,
+                    output_tokens=50,
+                    total_tokens=150,
+                ),
+            )
+
+    response = asyncio.run(
+        MarketCompetitorAgent(provider=FakeProvider()).run(agent_input)
+    )
+
+    assert response.data.status.value == "insufficient_data"
+    assert any(
+        "did not support competitor" in item
+        for item in response.data.missing_information
+    )

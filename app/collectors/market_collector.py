@@ -1,4 +1,5 @@
 import asyncio
+import re
 from collections.abc import Iterable
 from typing import Protocol
 from urllib.parse import urlsplit, urlunsplit
@@ -81,30 +82,37 @@ def build_market_search_queries(
         ),
     ) or "global"
 
-    purpose_focus = {
-        "general_research": "market position competitors",
-        "start_similar_business": "competitors new entrant opportunity",
-        "partner_or_supplier": "competitors supply chain distribution",
-        "stock_research": "competitors market share industry outlook",
+    purpose_queries = {
+        "general_research": (
+            "main competitors and market position",
+            "market share and competitive landscape",
+            "industry trends competition and risks",
+        ),
+        "start_similar_business": (
+            "main competitors and alternatives",
+            "new entrant opportunities and market gaps",
+            "entry barriers pricing distribution and regulation",
+        ),
+        "partner_or_supplier": (
+            "competitors suppliers and distribution partners",
+            "supply chain channels and market access",
+            "partnership ecosystem and competitive conflicts",
+        ),
+        "stock_research": (
+            "main competitors and market share",
+            "competitive position and industry outlook",
+            "competition risks and annual report",
+        ),
     }[request.purpose.value]
 
     return [
         _compact_query(
             company_name,
             industry,
-            purpose_focus,
+            focus,
             location,
-        ),
-        _compact_query(
-            industry,
-            "market size growth trends customer demand",
-            location,
-        ),
-        _compact_query(
-            industry,
-            "entry barriers regulation pricing distribution competition",
-            location,
-        ),
+        )
+        for focus in purpose_queries
     ][:MAX_MARKET_SEARCHES]
 
 
@@ -124,6 +132,7 @@ def _canonical_url(url: str) -> str:
 
 def select_market_results(
     responses: list[TavilySearchResponse],
+    company_name: str | None = None,
 ) -> list[SearchResult]:
     unique_results: dict[str, SearchResult] = {}
 
@@ -137,11 +146,57 @@ def select_market_results(
             ):
                 unique_results[key] = result
 
-    return sorted(
+    ignored_terms = {"the", "company", "corporation", "inc", "limited"}
+    company_terms = {
+        term
+        for term in re.findall(
+            r"[a-z0-9]+",
+            (company_name or "").casefold(),
+        )
+        if len(term) > 2 and term not in ignored_terms
+    }
+
+    def result_score(result: SearchResult) -> float:
+        searchable = f"{result.title} {result.content}".casefold()
+        company_bonus = (
+            0.2
+            if any(term in searchable for term in company_terms)
+            else 0
+        )
+        return result.relevance_score + company_bonus
+
+    selected: list[SearchResult] = []
+    selected_urls: set[str] = set()
+
+    # Preserve coverage across every search intent before filling the
+    # remaining positions by global relevance.
+    for response in responses:
+        candidates = sorted(
+            response.results,
+            key=result_score,
+            reverse=True,
+        )
+        for candidate in candidates:
+            key = _canonical_url(str(candidate.url))
+            if key not in selected_urls:
+                selected.append(unique_results[key])
+                selected_urls.add(key)
+                break
+
+    remaining = sorted(
         unique_results.values(),
-        key=lambda result: result.relevance_score,
+        key=result_score,
         reverse=True,
-    )[:MAX_MARKET_DOCUMENTS]
+    )
+    for candidate in remaining:
+        if len(selected) >= MAX_MARKET_DOCUMENTS:
+            break
+        key = _canonical_url(str(candidate.url))
+        if key not in selected_urls:
+            selected.append(unique_results[key])
+            selected_urls.add(key)
+
+    return selected[:MAX_MARKET_DOCUMENTS]
 
 
 def _hostname(url: str) -> str:
@@ -229,7 +284,10 @@ class MarketEvidenceCollector:
                 for query in queries
             )
         )
-        selected_results = select_market_results(search_responses)
+        selected_results = select_market_results(
+            search_responses,
+            company_name=request.company_evidence.company_identity.name,
+        )
 
         total_credits = sum(
             response.usage.credits_used

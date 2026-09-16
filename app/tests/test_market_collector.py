@@ -71,10 +71,26 @@ def test_query_builder_uses_company_industry_purpose_and_location():
     queries = build_market_search_queries(collection_input())
 
     assert len(queries) == 3
-    assert "The Coca-Cola Company" in queries[0]
-    assert "Beverages" in queries[0]
-    assert "new entrant" in queries[0]
+    assert all("The Coca-Cola Company" in query for query in queries)
+    assert all("Beverages" in query for query in queries)
+    assert any("new entrant" in query for query in queries)
     assert all("Chennai" in query for query in queries)
+
+
+def test_stock_queries_are_company_specific_and_investment_relevant():
+    request = MarketEvidenceCollectionInput.model_validate(
+        {
+            **collection_input().model_dump(),
+            "purpose": "stock_research",
+        }
+    )
+
+    queries = build_market_search_queries(request)
+
+    assert all("The Coca-Cola Company" in query for query in queries)
+    assert "market share" in queries[0]
+    assert "industry outlook" in queries[1]
+    assert "annual report" in queries[2]
 
 
 def test_result_selection_deduplicates_urls_and_keeps_best_score():

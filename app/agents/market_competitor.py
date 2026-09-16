@@ -8,6 +8,7 @@ from app.prompts.market_competitor import (
     build_market_competitor_prompt,
 )
 from app.schemas.market_competitor import (
+    MarketAnalysisStatus,
     MarketCompetitorInput,
     MarketCompetitorOutput,
 )
@@ -122,5 +123,20 @@ class MarketCompetitorAgent:
             response.data,
             agent_input,
         )
+
+        findings = [
+            *response.data.entry_barriers,
+            *response.data.market_trends,
+            *response.data.market_gaps,
+            *response.data.competitive_risks,
+        ]
+        if not response.data.competitors and not findings:
+            response.data.status = MarketAnalysisStatus.INSUFFICIENT_DATA
+            missing_message = (
+                "The collected sources did not support competitor or market "
+                "findings."
+            )
+            if missing_message not in response.data.missing_information:
+                response.data.missing_information.append(missing_message)
 
         return response
