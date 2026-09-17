@@ -28,6 +28,69 @@ from app.search.tavily_provider import TavilyProvider
 MAX_PUBLIC_SIGNAL_SEARCHES = 3
 MAX_PUBLIC_SIGNALS = 8
 MAX_SIGNAL_CHARACTERS = 4_000
+MIN_SIGNAL_CONTENT_CHARACTERS = 120
+MAX_RESULTS_PER_DOMAIN = 2
+
+SIGNAL_TERMS = {
+    "boycott",
+    "complaint",
+    "complaints",
+    "consumer",
+    "controversy",
+    "customer",
+    "discussion",
+    "experience",
+    "feedback",
+    "lawsuit",
+    "perception",
+    "product quality",
+    "rating",
+    "recall",
+    "regulatory",
+    "reputation",
+    "review",
+    "reviews",
+    "satisfaction",
+    "sentiment",
+    "service quality",
+    "survey",
+}
+
+LOW_QUALITY_HOSTS = {
+    "bartleby.com",
+    "brainly.in",
+    "coursehero.com",
+    "ivypanda.com",
+    "scribd.com",
+    "studocu.com",
+    "ukessays.com",
+}
+
+TRUSTED_NEWS_HOSTS = {
+    "bloomberg.com",
+    "business-standard.com",
+    "cnbc.com",
+    "economictimes.indiatimes.com",
+    "financialexpress.com",
+    "hindustantimes.com",
+    "indianexpress.com",
+    "livemint.com",
+    "ndtv.com",
+    "reuters.com",
+    "thehindu.com",
+    "timesofindia.indiatimes.com",
+}
+
+REVIEW_OR_FORUM_HOSTS = {
+    "consumercomplaints.in",
+    "glassdoor.co.in",
+    "glassdoor.com",
+    "indeed.com",
+    "mouthshut.com",
+    "quora.com",
+    "reddit.com",
+    "trustpilot.com",
+}
 
 
 class PublicSignalResearchProvider(Protocol):
@@ -94,9 +157,9 @@ def build_public_signal_queries(
             ("relationship service quality reputation risk", "news"),
         ),
         "stock_research": (
-            ("customer sentiment and brand perception", "general"),
-            ("customer complaints product service issues", "general"),
-            ("reputation risk controversy regulatory news", "news"),
+            ("customer reviews complaints product quality", "general"),
+            ("consumer survey brand reputation satisfaction", "general"),
+            ("controversy recall lawsuit regulatory action", "news"),
         ),
     }[request.purpose.value]
 
@@ -131,6 +194,76 @@ def _company_terms(company_name: str) -> set[str]:
     }
 
 
+def _hostname(url: str) -> str:
+    return (urlsplit(url).hostname or "").casefold().removeprefix("www.")
+
+
+def _host_matches(hostname: str, domains: set[str]) -> bool:
+    return any(
+        hostname == domain or hostname.endswith(f".{domain}")
+        for domain in domains
+    )
+
+
+def _company_match_ratio(text: str, company_name: str) -> float:
+    terms = _company_terms(company_name)
+    if not terms:
+        return 0
+    normalized = text.casefold()
+    matches = sum(term in normalized for term in terms)
+    return matches / len(terms)
+
+
+def _contains_signal_language(text: str) -> bool:
+    normalized = text.casefold()
+    return any(term in normalized for term in SIGNAL_TERMS)
+
+
+def _is_weak_page(url: str, title: str) -> bool:
+    parsed = urlsplit(url)
+    hostname = _hostname(url)
+    path_and_title = f"{parsed.path} {title}".casefold()
+    if _host_matches(hostname, LOW_QUALITY_HOSTS):
+        return True
+    return any(
+        marker in path_and_title
+        for marker in (
+            "contact-us",
+            "contact us",
+            "/contact/",
+            "/faq",
+            "frequently asked questions",
+            "free essay",
+            "report example",
+        )
+    )
+
+
+def _is_relevant_result(
+    result: SearchResult,
+    company_name: str,
+) -> bool:
+    url = str(result.url)
+    if _is_weak_page(url, result.title):
+        return False
+    searchable = f"{result.title} {url} {result.content}"
+    return (
+        _company_match_ratio(searchable, company_name) >= 0.6
+        and _contains_signal_language(searchable)
+    )
+
+
+def _source_quality_bonus(result: SearchResult) -> float:
+    hostname = _hostname(str(result.url))
+    if _host_matches(hostname, TRUSTED_NEWS_HOSTS):
+        return 0.3
+    if _host_matches(hostname, REVIEW_OR_FORUM_HOSTS):
+        return 0.25
+    if hostname.endswith(".gov.in") or hostname.endswith(".gov"):
+        return 0.3
+    return 0
+
+
 def select_public_signal_results(
     responses: list[TavilySearchResponse],
     company_name: str,
@@ -145,38 +278,36 @@ def select_public_signal_results(
             ):
                 unique[key] = result
 
-    terms = _company_terms(company_name)
-
     def score(result: SearchResult) -> float:
         searchable = f"{result.title} {result.content}".casefold()
-        company_bonus = 0.2 if any(
-            term in searchable for term in terms
-        ) else 0
-        return result.relevance_score + company_bonus
+        company_bonus = 0.2 * _company_match_ratio(
+            searchable,
+            company_name,
+        )
+        return (
+            result.relevance_score
+            + company_bonus
+            + _source_quality_bonus(result)
+        )
 
     selected: list[SearchResult] = []
     selected_urls: set[str] = set()
-
-    # Keep at least one result from each intent before filling by score.
-    for response in responses:
-        for candidate in sorted(
-            response.results,
-            key=score,
-            reverse=True,
-        ):
-            key = _canonical_url(str(candidate.url))
-            if key not in selected_urls:
-                selected.append(unique[key])
-                selected_urls.add(key)
-                break
+    domain_counts: dict[str, int] = {}
 
     for candidate in sorted(unique.values(), key=score, reverse=True):
         if len(selected) >= MAX_PUBLIC_SIGNALS:
             break
         key = _canonical_url(str(candidate.url))
-        if key not in selected_urls:
-            selected.append(candidate)
-            selected_urls.add(key)
+        hostname = _hostname(str(candidate.url))
+        if (
+            key in selected_urls
+            or domain_counts.get(hostname, 0) >= MAX_RESULTS_PER_DOMAIN
+            or not _is_relevant_result(candidate, company_name)
+        ):
+            continue
+        selected.append(candidate)
+        selected_urls.add(key)
+        domain_counts[hostname] = domain_counts.get(hostname, 0) + 1
 
     return selected[:MAX_PUBLIC_SIGNALS]
 
@@ -184,9 +315,10 @@ def select_public_signal_results(
 def classify_signal_source(
     url: str,
     title: str,
+    content: str = "",
 ) -> SignalSourceType:
-    hostname = (urlsplit(url).hostname or "").removeprefix("www.")
-    searchable = f"{hostname} {title}".casefold()
+    hostname = _hostname(url)
+    searchable = f"{hostname} {title} {content[:500]}".casefold()
 
     if any(marker in searchable for marker in ("glassdoor", "indeed")):
         return SignalSourceType.EMPLOYEE_REVIEW
@@ -198,6 +330,7 @@ def classify_signal_source(
             "mouthshut",
             "customer review",
             "product review",
+            "customer complaint",
         )
     ):
         return SignalSourceType.CUSTOMER_REVIEW
@@ -205,7 +338,13 @@ def classify_signal_source(
         return SignalSourceType.FORUM
     if any(
         marker in searchable
-        for marker in ("x.com", "twitter", "facebook", "instagram")
+        for marker in (
+            "x.com",
+            "twitter",
+            "facebook",
+            "instagram",
+            "linkedin.com",
+        )
     ):
         return SignalSourceType.SOCIAL_MEDIA
     if any(
@@ -216,13 +355,42 @@ def classify_signal_source(
             "business-standard",
             "economictimes",
             "timesofindia",
+            "livemint",
+            "financialexpress",
+            "hindustantimes",
+            "indianexpress",
+            "thehindu",
+            "ndtv",
+            "cnbc",
             "news",
         )
     ):
         return SignalSourceType.NEWS
-    if "survey" in searchable:
+    if any(
+        marker in searchable
+        for marker in ("survey", "consumer research", "market research")
+    ):
         return SignalSourceType.SURVEY
     return SignalSourceType.OTHER
+
+
+def is_usable_signal_content(
+    *,
+    company_name: str,
+    title: str,
+    url: str,
+    content: str,
+) -> bool:
+    compact_content = " ".join(content.split())
+    if len(compact_content) < MIN_SIGNAL_CONTENT_CHARACTERS:
+        return False
+    if _is_weak_page(url, title):
+        return False
+    searchable = f"{title} {url} {compact_content}"
+    return (
+        _company_match_ratio(searchable, company_name) >= 0.6
+        and _contains_signal_language(searchable)
+    )
 
 
 def redact_contact_details(content: str) -> str:
@@ -329,16 +497,24 @@ class PublicSignalCollector:
             for result in selected_results
         }
         documents: list[PublicSignalDocument] = []
+        discarded_documents = 0
         for extracted in extraction.documents:
             content = redact_contact_details(extracted.content)
             content = content[:MAX_SIGNAL_CHARACTERS].strip()
-            if not content:
-                continue
             result = metadata.get(_canonical_url(str(extracted.url)))
             title = result.title if result else "Public signal source"
+            if not is_usable_signal_content(
+                company_name=request.company_name,
+                title=title,
+                url=str(extracted.url),
+                content=content,
+            ):
+                discarded_documents += 1
+                continue
             source_type = classify_signal_source(
                 str(extracted.url),
                 title,
+                content,
             )
             documents.append(
                 PublicSignalDocument(
@@ -358,6 +534,11 @@ class PublicSignalCollector:
             warnings.append(
                 f"{len(extraction.failed_documents)} selected source(s) "
                 "could not be extracted."
+            )
+        if discarded_documents:
+            warnings.append(
+                f"{discarded_documents} extracted source(s) were discarded "
+                "because they were weak, irrelevant, or too short."
             )
         if not documents:
             warnings.append(

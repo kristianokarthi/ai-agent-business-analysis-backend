@@ -4,6 +4,7 @@ from app.collectors.public_signal_collector import (
     PublicSignalCollector,
     build_public_signal_queries,
     classify_signal_source,
+    is_usable_signal_content,
     redact_contact_details,
     select_public_signal_results,
 )
@@ -68,8 +69,8 @@ def test_stock_queries_are_company_and_reputation_specific():
     assert len(queries) == 3
     assert all("The Coca-Cola Company" in query for query, _ in queries)
     assert all("India" in query for query, _ in queries)
-    assert "brand perception" in queries[0][0]
-    assert "complaints" in queries[1][0]
+    assert "customer reviews" in queries[0][0]
+    assert "consumer survey" in queries[1][0]
     assert queries[2][1] == "news"
 
 
@@ -113,6 +114,77 @@ def test_signal_selection_deduplicates_and_preserves_search_coverage():
     assert len(selected) == 2
     assert selected[0].title == "Updated Coca-Cola reviews"
     assert selected[1].title == "Coca-Cola reputation"
+
+
+def test_signal_selection_rejects_irrelevant_and_weak_sources():
+    responses = [
+        search_response(
+            "signals",
+            [
+                {
+                    "title": "Contact Us",
+                    "url": "https://www.coca-cola.com/in/en/about-us/contact-us",
+                    "content": "Consumer related queries and contact details.",
+                    "relevance_score": 0.99,
+                },
+                {
+                    "title": "Coca-Cola Marketing Report Example",
+                    "url": "https://ivypanda.com/essays/coca-cola-marketing",
+                    "content": "A free essay about consumer perception.",
+                    "relevance_score": 0.98,
+                },
+                {
+                    "title": "Hexagon Nutrition IPO risks",
+                    "url": "https://www.livemint.com/market/ipo/hexagon",
+                    "content": "An unrelated company faces customer risk.",
+                    "relevance_score": 0.97,
+                },
+                {
+                    "title": "Coca-Cola customer satisfaction survey",
+                    "url": "https://research.example.org/coca-cola-survey",
+                    "content": "Consumers describe Coca-Cola product quality.",
+                    "relevance_score": 0.8,
+                },
+            ],
+        )
+    ]
+
+    selected = select_public_signal_results(
+        responses,
+        "The Coca-Cola Company",
+    )
+
+    assert [item.title for item in selected] == [
+        "Coca-Cola customer satisfaction survey"
+    ]
+
+
+def test_extracted_signal_quality_gate_rejects_empty_or_unrelated_content():
+    assert not is_usable_signal_content(
+        company_name="The Coca-Cola Company",
+        title="Consumer preference sample",
+        url="https://example.com/sample",
+        content="``` [...] ```",
+    )
+    assert not is_usable_signal_content(
+        company_name="The Coca-Cola Company",
+        title="Hexagon Nutrition IPO risks",
+        url="https://example.com/hexagon",
+        content=(
+            "Customers should review this unrelated company's litigation "
+            "and product risks before investing. " * 3
+        ),
+    )
+    assert is_usable_signal_content(
+        company_name="The Coca-Cola Company",
+        title="Coca-Cola customer satisfaction survey",
+        url="https://example.com/coca-cola-survey",
+        content=(
+            "A consumer survey of Coca-Cola customers reported strong brand "
+            "recognition alongside recurring feedback about sweetness and "
+            "interest in lower-sugar products in the Indian market."
+        ),
+    )
 
 
 def test_source_classification_and_contact_redaction():
@@ -174,11 +246,19 @@ def test_collector_returns_agent_4_signals_and_usage():
         documents=[
             ExtractedDocument(
                 url="https://www.trustpilot.com/review/coca-cola.com",
-                content="Customers praise availability but mention sweetness.",
+                content=(
+                    "Coca-Cola customers praise widespread product availability "
+                    "and consistent taste, but several customer reviews mention "
+                    "excessive sweetness and ask for more low-sugar choices."
+                ),
             ),
             ExtractedDocument(
                 url="https://www.reddit.com/r/example/comments/cola",
-                content="A public discussion includes mixed product feedback.",
+                content=(
+                    "A public Coca-Cola discussion contains mixed product "
+                    "feedback. Consumers appreciate availability while some "
+                    "customers complain about sweetness and packaging waste."
+                ),
             ),
         ],
         failed_documents=[
