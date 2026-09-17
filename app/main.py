@@ -16,6 +16,7 @@ from app.api.public_signal_evidence import (
     router as public_signal_evidence_router,
 )
 from app.api.research import router as research_router
+from app.api.report_context import router as report_context_router
 from app.api.tavily_tools import router as tavily_tools_router
 from app.core.config import settings
 
@@ -40,6 +41,7 @@ app.include_router(customer_reputation_router)
 app.include_router(tavily_tools_router)
 app.include_router(market_evidence_router)
 app.include_router(public_signal_evidence_router)
+app.include_router(report_context_router)
 
 
 @app.get("/")
