@@ -107,6 +107,27 @@ class SignalTheme(StrictSchema):
         return self
 
 
+class SignalThemeDraft(StrictSchema):
+    statement: str = Field(min_length=1)
+    signal_ids: list[str] = Field(min_length=1)
+    confidence: ConfidenceLevel
+
+
+class CustomerReputationDraft(StrictSchema):
+    signal_assessments: list[SignalAssessment] = Field(
+        min_length=1,
+        max_length=20,
+    )
+    praise_themes: list[SignalThemeDraft] = Field(max_length=3)
+    complaint_themes: list[SignalThemeDraft] = Field(max_length=3)
+    customer_pain_points: list[SignalThemeDraft] = Field(max_length=3)
+    unmet_needs: list[SignalThemeDraft] = Field(max_length=3)
+    reputation_risks: list[SignalThemeDraft] = Field(max_length=3)
+    conflicting_signals: list[SignalThemeDraft] = Field(max_length=3)
+    missing_information: list[str]
+    overall_confidence: ConfidenceLevel
+
+
 class CustomerReputationOutput(StrictSchema):
     status: PublicSignalStatus
     company_name: str = Field(min_length=1)
