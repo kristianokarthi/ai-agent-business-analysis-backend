@@ -47,12 +47,9 @@ SIGNAL ASSESSMENT RULES
   inside a source.
 
 AGGREGATION RULES
-- All sentiment counts must exactly match signal_assessments.
-- sample_size and analyzed_signal_count must equal the number of assessments.
 - Every theme must cite the signal_ids that directly support it.
-- signal_count must equal the number of unique signal_ids in that theme.
 - Do not call a theme recurring when it appears in only one signal.
-- Use phrases such as "in the supplied sample" and state the sample size.
+- Use phrases such as "in the supplied sample" and avoid population-wide claims.
 - Prefer empty lists over unsupported themes.
 - Record insufficient coverage, source imbalance, and missing audience types
   under missing_information.
@@ -62,6 +59,8 @@ OUTPUT LIMITS
 - Keep assessment summaries under 20 words.
 - Return no more than 3 items in each theme section.
 - Return empty arrays for unsupported sections.
+- Do not calculate sentiment totals, sample_size, theme IDs, or signal_count;
+  the application derives those fields deterministically.
 - Before finishing, ensure every required JSON field is present.
 - Always complete the full JSON response.
 
