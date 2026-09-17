@@ -2,13 +2,27 @@ from fastapi import APIRouter, HTTPException
 from groq import BadRequestError, RateLimitError
 from pydantic import ValidationError
 
+from app.api.tavily_tools import provider_error_to_http
 from app.agents.customer_reputation import (
     CustomerReputationAgent,
     InvalidPublicSignalReferenceError,
 )
+from app.collectors.public_signal_collector import PublicSignalCollector
 from app.schemas.customer_reputation import (
     CustomerReputationAPIResponse,
     CustomerReputationInput,
+)
+from app.schemas.public_signal_evidence import (
+    CustomerReputationResearchResponse,
+    PublicSignalCollectionInput,
+    PublicSignalCollectionStatus,
+)
+from app.search.tavily_provider import (
+    TavilyConfigurationError,
+    TavilyQuotaExceededError,
+    TavilyRateLimitError,
+    TavilyRequestError,
+    TavilyServiceError,
 )
 
 
@@ -16,6 +30,56 @@ router = APIRouter(
     prefix="/api/agents/customer-reputation",
     tags=["Agents"],
 )
+
+
+@router.post(
+    "/research",
+    response_model=CustomerReputationResearchResponse,
+)
+async def research_customer_reputation(
+    request: PublicSignalCollectionInput,
+) -> CustomerReputationResearchResponse:
+    """Collect current public signals and run Agent 4 with them."""
+    try:
+        collection = await PublicSignalCollector().collect(request)
+    except (
+        TavilyConfigurationError,
+        TavilyQuotaExceededError,
+        TavilyRateLimitError,
+        TavilyRequestError,
+        TavilyServiceError,
+    ) as error:
+        raise provider_error_to_http(error) from error
+
+    if (
+        collection.status
+        == PublicSignalCollectionStatus.INSUFFICIENT_SOURCES
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "insufficient_public_signals",
+                "message": (
+                    "No usable public signals were collected, so Agent 4 "
+                    "was not run."
+                ),
+                "warnings": collection.warnings,
+            },
+        )
+
+    agent_response = await run_customer_reputation(
+        CustomerReputationInput(
+            company_name=request.company_name,
+            purpose=request.purpose,
+            follow_up_answers=request.follow_up_answers,
+            signal_documents=collection.signal_documents,
+        )
+    )
+    return CustomerReputationResearchResponse(
+        result=agent_response.result,
+        usage=agent_response.usage,
+        collection=collection,
+    )
 
 
 @router.post("", response_model=CustomerReputationAPIResponse)
