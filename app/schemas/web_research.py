@@ -53,7 +53,7 @@ class TavilySearchResponse(StrictSchema):
 
 
 class TavilyExtractRequest(StrictSchema):
-    urls: list[HttpUrl] = Field(min_length=1, max_length=5)
+    urls: list[HttpUrl] = Field(min_length=1, max_length=8)
     query: str = Field(min_length=3, max_length=300)
     extract_depth: SearchDepth = SearchDepth.BASIC
     chunks_per_source: int = Field(default=3, ge=1, le=5)

@@ -123,6 +123,18 @@ def test_extract_returns_successes_failures_and_usage():
     assert result.usage.credits_used == 1
 
 
+def test_extract_request_accepts_agent_4_eight_source_limit():
+    request = TavilyExtractRequest(
+        urls=[
+            f"https://example.com/public-signal-{index}"
+            for index in range(1, 9)
+        ],
+        query="company customer reputation signals",
+    )
+
+    assert len(request.urls) == 8
+
+
 def test_missing_api_key_is_rejected(monkeypatch):
     monkeypatch.setattr(
         "app.search.tavily_provider.settings.tavily_api_key",
