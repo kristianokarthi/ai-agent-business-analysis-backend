@@ -41,6 +41,10 @@ class OpenRouterInvalidResponseError(OpenRouterProviderError):
     pass
 
 
+class OpenRouterTruncatedResponseError(OpenRouterProviderError):
+    pass
+
+
 class OpenRouterServiceError(OpenRouterProviderError):
     pass
 
@@ -67,7 +71,7 @@ class OpenRouterProvider:
         system_prompt: str,
         user_prompt: str,
         response_model: type[ResponseModel],
-        max_tokens: int = 3_500,
+        max_tokens: int = 6_000,
         temperature: float = 0,
     ) -> StructuredLLMResult[ResponseModel]:
         payload = {
@@ -78,6 +82,9 @@ class OpenRouterProvider:
             ],
             "temperature": temperature,
             "max_tokens": max_tokens,
+            "reasoning": {
+                "enabled": False,
+            },
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {
@@ -147,19 +154,12 @@ class OpenRouterProvider:
 
         try:
             body = response.json()
-            content = body["choices"][0]["message"]["content"]
-            if not isinstance(content, str) or not content.strip():
-                raise ValueError("empty completion content")
-            parsed = response_model.model_validate_json(content)
-        except (
-            KeyError,
-            IndexError,
-            TypeError,
-            ValueError,
-            ValidationError,
-        ) as error:
+            choice = body["choices"][0]
+            content = choice["message"]["content"]
+            finish_reason = choice.get("finish_reason")
+        except (KeyError, IndexError, TypeError, ValueError) as error:
             raise OpenRouterInvalidResponseError(
-                "OpenRouter returned an invalid structured response."
+                "OpenRouter returned an invalid response envelope."
             ) from error
 
         api_usage = body.get("usage") or {}
@@ -175,6 +175,50 @@ class OpenRouterProvider:
             reasoning_tokens=completion_details.get("reasoning_tokens", 0),
             total_tokens=api_usage.get("total_tokens", 0),
         )
+
+        if finish_reason in {"length", "max_tokens"}:
+            logger.warning(
+                "OpenRouter output truncated | agent=%s | model=%s | "
+                "finish_reason=%s | output=%d | reasoning=%d",
+                agent_name,
+                usage.model,
+                finish_reason,
+                usage.output_tokens,
+                usage.reasoning_tokens,
+            )
+            raise OpenRouterTruncatedResponseError(
+                "OpenRouter stopped because the output-token budget was reached."
+            )
+
+        if not isinstance(content, str) or not content.strip():
+            logger.warning(
+                "OpenRouter returned empty content | agent=%s | model=%s | "
+                "finish_reason=%s | output=%d | reasoning=%d",
+                agent_name,
+                usage.model,
+                finish_reason,
+                usage.output_tokens,
+                usage.reasoning_tokens,
+            )
+            raise OpenRouterInvalidResponseError(
+                "OpenRouter returned empty structured content."
+            )
+
+        try:
+            parsed = response_model.model_validate_json(content)
+        except ValidationError as error:
+            logger.warning(
+                "OpenRouter structured validation failed | agent=%s | "
+                "model=%s | finish_reason=%s | content_chars=%d | errors=%s",
+                agent_name,
+                usage.model,
+                finish_reason,
+                len(content),
+                error.errors(include_input=False),
+            )
+            raise OpenRouterInvalidResponseError(
+                "OpenRouter returned content that did not match the report schema."
+            ) from error
 
         logger.info(
             "LLM usage | agent=%s | provider=openrouter | model=%s | "
