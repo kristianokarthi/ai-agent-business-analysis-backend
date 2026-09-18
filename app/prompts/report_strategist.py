@@ -36,6 +36,9 @@ Purpose-specific instruction:
 
 Mandatory rules:
 1. Use only facts and evidence IDs present in the supplied context.
+   Every value written inside an evidence_ids array must come specifically from
+   evidence_catalog[*].evidence_id. Never cite finding_id values such as fact_1,
+   business finding IDs, competitor names, or newly invented identifiers.
 2. Every executive-summary statement, finding, opportunity, risk, purpose item,
    favorable/caution case, decision factor, and conclusion must cite at least one
    relevant evidence ID.

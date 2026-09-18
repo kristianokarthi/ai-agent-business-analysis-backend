@@ -87,6 +87,9 @@ class FakeOpenRouterProvider:
         assert kwargs["agent_name"] == "report_strategist"
         assert kwargs["response_model"] is ReportStrategistDraft
         assert kwargs["max_tokens"] == 6000
+        assert "Allowed citation evidence IDs" in kwargs["user_prompt"]
+        assert "market_source_1" in kwargs["user_prompt"]
+        assert "Do not cite finding_id values" in kwargs["user_prompt"]
         return StructuredLLMResult(
             data=ReportStrategistDraft.model_validate(valid_draft_data()),
             usage=LLMUsage(
