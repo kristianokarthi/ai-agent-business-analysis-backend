@@ -136,6 +136,7 @@ class ContextReputationSummary(StrictSchema):
     negative_count: int = Field(ge=0)
     mixed_count: int = Field(ge=0)
     unclear_count: int = Field(ge=0)
+    evidence_ids: list[str]
     praise: list[ContextTheme] = Field(max_length=3)
     complaints: list[ContextTheme] = Field(max_length=3)
     pain_points: list[ContextTheme] = Field(max_length=3)

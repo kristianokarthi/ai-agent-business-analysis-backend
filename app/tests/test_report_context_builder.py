@@ -88,6 +88,12 @@ def test_builder_creates_compact_context_and_terminal_citations():
         "signal_review_1",
         "signal_review_3",
     ]
+    assert result.reputation.evidence_ids == [
+        "signal_review_1",
+        "signal_review_2",
+        "signal_review_3",
+        "signal_news_1",
+    ]
 
     catalog = {
         source.evidence_id: source
@@ -203,4 +209,3 @@ def test_builder_trims_optional_findings_to_respect_small_budget():
     assert result.truncated_for_budget is True
     assert len(result.business_findings) < 8
     assert len(result.verified_facts) >= 4
-

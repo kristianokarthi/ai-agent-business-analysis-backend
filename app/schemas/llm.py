@@ -8,3 +8,4 @@ class LLMUsage(BaseModel):
     input_tokens: int
     output_tokens: int
     total_tokens: int
+    reasoning_tokens: int = 0
