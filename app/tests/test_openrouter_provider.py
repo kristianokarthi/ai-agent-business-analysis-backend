@@ -11,6 +11,7 @@ from app.llm.openrouter_provider import (
     OpenRouterInvalidResponseError,
     OpenRouterProvider,
     OpenRouterRateLimitError,
+    OpenRouterTruncatedResponseError,
 )
 from app.schemas.fact_finder import StrictSchema
 
@@ -35,6 +36,7 @@ def test_generate_structured_returns_data_and_usage():
         payload = json.loads(request.content)
         assert payload["model"] == "nvidia/nemotron-3-super-120b-a12b"
         assert payload["max_tokens"] == 2500
+        assert payload["reasoning"] == {"enabled": False}
         assert payload["provider"]["require_parameters"] is True
         response_format = payload["response_format"]
         assert response_format["type"] == "json_schema"
@@ -144,6 +146,43 @@ def test_invalid_structured_response_is_rejected():
         transport=httpx.MockTransport(handler),
     )
     with pytest.raises(OpenRouterInvalidResponseError):
+        asyncio.run(
+            provider.generate_structured(
+                agent_name="report_strategist",
+                system_prompt="System",
+                user_prompt="User",
+                response_model=SampleResponse,
+            )
+        )
+
+
+def test_truncated_structured_response_has_specific_error():
+    async def handler(_: httpx.Request) -> httpx.Response:
+        return json_response(
+            {
+                "model": "nvidia/nemotron-3-super-120b-a12b",
+                "choices": [
+                    {
+                        "message": {"content": '{"summary": "incomplete'},
+                        "finish_reason": "length",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 500,
+                    "completion_tokens": 6000,
+                    "total_tokens": 6500,
+                    "completion_tokens_details": {
+                        "reasoning_tokens": 0,
+                    },
+                },
+            }
+        )
+
+    provider = OpenRouterProvider(
+        api_key="test-key",
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(OpenRouterTruncatedResponseError):
         asyncio.run(
             provider.generate_structured(
                 agent_name="report_strategist",

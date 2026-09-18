@@ -14,6 +14,7 @@ from app.llm.openrouter_provider import (
     OpenRouterRateLimitError,
     OpenRouterRequestError,
     OpenRouterServiceError,
+    OpenRouterTruncatedResponseError,
 )
 from app.reports.context_builder import build_report_context
 from app.schemas.report_strategist import (
@@ -45,6 +46,17 @@ async def _run(context) -> ReportStrategistAPIResponse:
                 "message": (
                     "Agent 5 produced an unsupported citation, identity, purpose, "
                     "or recommendation. Please retry."
+                ),
+            },
+        ) from error
+    except OpenRouterTruncatedResponseError as error:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error_code": "openrouter_output_truncated",
+                "message": (
+                    "OpenRouter reached the Agent 5 output-token limit before "
+                    "finishing the report."
                 ),
             },
         ) from error

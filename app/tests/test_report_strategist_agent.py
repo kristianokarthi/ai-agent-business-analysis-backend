@@ -86,7 +86,7 @@ class FakeOpenRouterProvider:
     async def generate_structured(self, **kwargs):
         assert kwargs["agent_name"] == "report_strategist"
         assert kwargs["response_model"] is ReportStrategistDraft
-        assert kwargs["max_tokens"] == 3500
+        assert kwargs["max_tokens"] == 6000
         return StructuredLLMResult(
             data=ReportStrategistDraft.model_validate(valid_draft_data()),
             usage=LLMUsage(

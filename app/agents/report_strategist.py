@@ -180,7 +180,7 @@ class ReportStrategistAgent:
                 f"{context.model_dump_json(indent=2)}"
             ),
             response_model=ReportStrategistDraft,
-            max_tokens=3_500,
+            max_tokens=6_000,
             temperature=0,
         )
 
