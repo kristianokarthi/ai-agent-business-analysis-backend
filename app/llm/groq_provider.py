@@ -1,11 +1,11 @@
 import logging
-from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import TypeVar
 
 from groq import AsyncGroq
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.llm.types import StructuredLLMResult
 from app.schemas.llm import LLMUsage
 
 
@@ -15,12 +15,6 @@ ResponseModel = TypeVar(
 )
 
 logger = logging.getLogger("uvicorn.error")
-
-
-@dataclass
-class StructuredLLMResult(Generic[ResponseModel]):
-    data: ResponseModel
-    usage: LLMUsage
 
 
 class GroqProvider:

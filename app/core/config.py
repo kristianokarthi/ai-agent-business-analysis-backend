@@ -13,6 +13,11 @@ class Settings:
         "openai/gpt-oss-20b",
     )
     tavily_api_key: str = os.getenv("TAVILY_API_KEY", "")
+    gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
+    gemini_model: str = os.getenv(
+        "GEMINI_MODEL",
+        "gemini-2.5-flash",
+    )
     research_tool_test_key: str = os.getenv(
         "RESEARCH_TOOL_TEST_KEY",
         "",

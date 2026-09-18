@@ -457,6 +457,10 @@ def build_report_context(request: ReportContextRequest) -> ReportContext:
             "negative_count": summary.negative_count,
             "mixed_count": summary.mixed_count,
             "unclear_count": summary.unclear_count,
+            "evidence_ids": resolve(
+                assessment.signal_id
+                for assessment in reputation_output.signal_assessments
+            ),
             "praise": themes(reputation_output.praise_themes),
             "complaints": themes(reputation_output.complaint_themes),
             "pain_points": themes(reputation_output.customer_pain_points),
