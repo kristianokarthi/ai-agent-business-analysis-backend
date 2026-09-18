@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, HTTPException
 from pydantic import ValidationError
 
@@ -29,6 +31,8 @@ router = APIRouter(
     tags=["Agents"],
 )
 
+logger = logging.getLogger("uvicorn.error")
+
 
 async def _run(context) -> ReportStrategistAPIResponse:
     try:
@@ -38,15 +42,31 @@ async def _run(context) -> ReportStrategistAPIResponse:
             usage=response.usage,
             context=context_metrics(context),
         )
-    except (InvalidReportEvidenceError, UnsafeStockRecommendationError) as error:
+    except UnsafeStockRecommendationError as error:
+        logger.warning(
+            "Agent 5 stock-safety validation failed | reason=%s",
+            error,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error_code": "unsafe_stock_recommendation",
+                "message": (
+                    "Agent 5 produced a direct stock-trading instruction. "
+                    "Please retry."
+                ),
+            },
+        ) from error
+    except InvalidReportEvidenceError as error:
+        logger.warning(
+            "Agent 5 evidence validation failed | reason=%s",
+            error,
+        )
         raise HTTPException(
             status_code=502,
             detail={
                 "error_code": "invalid_report_evidence",
-                "message": (
-                    "Agent 5 produced an unsupported citation, identity, purpose, "
-                    "or recommendation. Please retry."
-                ),
+                "message": str(error),
             },
         ) from error
     except OpenRouterTruncatedResponseError as error:

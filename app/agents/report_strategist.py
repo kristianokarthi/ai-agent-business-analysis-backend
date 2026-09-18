@@ -171,12 +171,20 @@ class ReportStrategistAgent:
         self,
         context: ReportContext,
     ) -> StructuredLLMResult[StrategicReport]:
+        allowed_evidence_ids = [
+            source.evidence_id for source in context.evidence_catalog
+        ]
         response = await self.provider.generate_structured(
             agent_name="report_strategist",
             system_prompt=build_report_strategist_prompt(context.purpose),
             user_prompt=(
                 "Create the final evidence-backed report from this compressed "
-                "context.\n\n"
+                "context. Every evidence_ids array may contain only values "
+                "from the allowed citation list below. Do not cite finding_id "
+                "values.\n\n"
+                "Allowed citation evidence IDs:\n"
+                f"{allowed_evidence_ids}\n\n"
+                "Compressed report context:\n"
                 f"{context.model_dump_json(indent=2)}"
             ),
             response_model=ReportStrategistDraft,
