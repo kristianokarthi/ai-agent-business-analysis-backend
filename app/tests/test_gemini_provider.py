@@ -36,7 +36,10 @@ def test_generate_structured_returns_data_and_usage():
         config = payload["generationConfig"]
         assert config["responseMimeType"] == "application/json"
         assert config["maxOutputTokens"] == 2500
-        assert "minLength" not in json.dumps(config["responseJsonSchema"])
+        assert "responseJsonSchema" not in config
+        prompt = payload["contents"][0]["parts"][0]["text"]
+        assert "Required JSON Schema" in prompt
+        assert "minLength" not in prompt
 
         return json_response(
             {

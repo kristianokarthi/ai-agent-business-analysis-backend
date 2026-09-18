@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import Any, TypeVar
 
@@ -91,6 +92,13 @@ class GeminiProvider:
         max_tokens: int = 3_500,
         temperature: float = 0,
     ) -> StructuredLLMResult[ResponseModel]:
+        response_schema = _gemini_json_schema(
+            response_model.model_json_schema()
+        )
+        schema_prompt = (
+            f"{user_prompt}\n\nRequired JSON Schema:\n"
+            f"{json.dumps(response_schema, ensure_ascii=False)}"
+        )
         payload = {
             "systemInstruction": {
                 "parts": [{"text": system_prompt}],
@@ -98,16 +106,13 @@ class GeminiProvider:
             "contents": [
                 {
                     "role": "user",
-                    "parts": [{"text": user_prompt}],
+                    "parts": [{"text": schema_prompt}],
                 }
             ],
             "generationConfig": {
                 "temperature": temperature,
                 "maxOutputTokens": max_tokens,
                 "responseMimeType": "application/json",
-                "responseJsonSchema": _gemini_json_schema(
-                    response_model.model_json_schema()
-                ),
             },
         }
 
@@ -135,6 +140,11 @@ class GeminiProvider:
             ) from error
 
         if response.status_code in {401, 403}:
+            logger.error(
+                "Gemini authentication error | status=%d | body=%s",
+                response.status_code,
+                response.text[:1000],
+            )
             raise GeminiConfigurationError(
                 "The Gemini API key is invalid or lacks access to the model."
             )
@@ -143,6 +153,11 @@ class GeminiProvider:
                 "The Gemini project rate or daily limit has been reached."
             )
         if 400 <= response.status_code < 500:
+            logger.error(
+                "Gemini request rejected | status=%d | body=%s",
+                response.status_code,
+                response.text[:1000],
+            )
             raise GeminiRequestError(
                 "Gemini rejected the generation request."
             )
