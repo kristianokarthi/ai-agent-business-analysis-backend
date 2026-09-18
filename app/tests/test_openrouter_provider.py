@@ -5,11 +5,12 @@ import httpx
 import pytest
 from pydantic import Field
 
-from app.llm.gemini_provider import (
-    GeminiConfigurationError,
-    GeminiInvalidResponseError,
-    GeminiProvider,
-    GeminiRateLimitError,
+from app.llm.openrouter_provider import (
+    OpenRouterConfigurationError,
+    OpenRouterCreditError,
+    OpenRouterInvalidResponseError,
+    OpenRouterProvider,
+    OpenRouterRateLimitError,
 )
 from app.schemas.fact_finder import StrictSchema
 
@@ -28,44 +29,45 @@ def json_response(payload: dict, status_code: int = 200) -> httpx.Response:
 
 def test_generate_structured_returns_data_and_usage():
     async def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == (
-            "/v1beta/models/gemini-2.5-flash:generateContent"
-        )
-        assert request.headers["x-goog-api-key"] == "test-key"
+        assert request.url.path == "/api/v1/chat/completions"
+        assert request.headers["Authorization"] == "Bearer test-key"
+
         payload = json.loads(request.content)
-        config = payload["generationConfig"]
-        assert config["responseMimeType"] == "application/json"
-        assert config["maxOutputTokens"] == 2500
-        assert "responseJsonSchema" not in config
-        prompt = payload["contents"][0]["parts"][0]["text"]
-        assert "Required JSON Schema" in prompt
-        assert "minLength" not in prompt
+        assert payload["model"] == "nvidia/nemotron-3-super-120b-a12b"
+        assert payload["max_tokens"] == 2500
+        assert payload["provider"]["require_parameters"] is True
+        response_format = payload["response_format"]
+        assert response_format["type"] == "json_schema"
+        assert response_format["json_schema"]["strict"] is True
+        assert response_format["json_schema"]["schema"]["type"] == "object"
 
         return json_response(
             {
-                "candidates": [
+                "id": "generation-test",
+                "model": "nvidia/nemotron-3-super-120b-a12b",
+                "choices": [
                     {
-                        "content": {
-                            "parts": [
-                                {"text": json.dumps({"summary": "Done"})}
-                            ]
+                        "message": {
+                            "role": "assistant",
+                            "content": json.dumps({"summary": "Done"}),
                         },
-                        "finishReason": "STOP",
+                        "finish_reason": "stop",
                     }
                 ],
-                "usageMetadata": {
-                    "promptTokenCount": 1200,
-                    "candidatesTokenCount": 1800,
-                    "thoughtsTokenCount": 200,
-                    "totalTokenCount": 3200,
+                "usage": {
+                    "prompt_tokens": 1200,
+                    "completion_tokens": 1800,
+                    "total_tokens": 3200,
+                    "completion_tokens_details": {
+                        "reasoning_tokens": 200,
+                    },
                 },
-                "modelVersion": "gemini-2.5-flash-test",
             }
         )
 
-    provider = GeminiProvider(
+    provider = OpenRouterProvider(
         api_key="test-key",
-        model="gemini-2.5-flash",
+        model="nvidia/nemotron-3-super-120b-a12b",
         transport=httpx.MockTransport(handler),
     )
     result = asyncio.run(
@@ -79,7 +81,7 @@ def test_generate_structured_returns_data_and_usage():
     )
 
     assert result.data.summary == "Done"
-    assert result.usage.provider == "google"
+    assert result.usage.provider == "openrouter"
     assert result.usage.input_tokens == 1200
     assert result.usage.output_tokens == 1800
     assert result.usage.reasoning_tokens == 200
@@ -88,25 +90,35 @@ def test_generate_structured_returns_data_and_usage():
 
 def test_missing_api_key_is_rejected(monkeypatch):
     monkeypatch.setattr(
-        "app.llm.gemini_provider.settings.gemini_api_key",
+        "app.llm.openrouter_provider.settings.openrouter_api_key",
         "",
     )
-    with pytest.raises(GeminiConfigurationError, match="GEMINI_API_KEY"):
-        GeminiProvider(api_key="")
+    with pytest.raises(
+        OpenRouterConfigurationError,
+        match="OPENROUTER_API_KEY",
+    ):
+        OpenRouterProvider(api_key="")
 
 
-def test_rate_limit_has_specific_error():
+@pytest.mark.parametrize(
+    ("status_code", "error_type"),
+    [
+        (402, OpenRouterCreditError),
+        (429, OpenRouterRateLimitError),
+    ],
+)
+def test_provider_limits_have_specific_errors(status_code, error_type):
     async def handler(_: httpx.Request) -> httpx.Response:
         return json_response(
-            {"error": {"status": "RESOURCE_EXHAUSTED"}},
-            status_code=429,
+            {"error": {"message": "limit reached"}},
+            status_code=status_code,
         )
 
-    provider = GeminiProvider(
+    provider = OpenRouterProvider(
         api_key="test-key",
         transport=httpx.MockTransport(handler),
     )
-    with pytest.raises(GeminiRateLimitError):
+    with pytest.raises(error_type):
         asyncio.run(
             provider.generate_structured(
                 agent_name="report_strategist",
@@ -121,17 +133,17 @@ def test_invalid_structured_response_is_rejected():
     async def handler(_: httpx.Request) -> httpx.Response:
         return json_response(
             {
-                "candidates": [
-                    {"content": {"parts": [{"text": "not-json"}]}}
-                ]
+                "choices": [
+                    {"message": {"content": "not-json"}},
+                ],
             }
         )
 
-    provider = GeminiProvider(
+    provider = OpenRouterProvider(
         api_key="test-key",
         transport=httpx.MockTransport(handler),
     )
-    with pytest.raises(GeminiInvalidResponseError):
+    with pytest.raises(OpenRouterInvalidResponseError):
         asyncio.run(
             provider.generate_structured(
                 agent_name="report_strategist",

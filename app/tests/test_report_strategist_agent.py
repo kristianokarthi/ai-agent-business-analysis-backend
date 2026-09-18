@@ -82,7 +82,7 @@ def valid_draft_data() -> dict:
     }
 
 
-class FakeGeminiProvider:
+class FakeOpenRouterProvider:
     async def generate_structured(self, **kwargs):
         assert kwargs["agent_name"] == "report_strategist"
         assert kwargs["response_model"] is ReportStrategistDraft
@@ -91,8 +91,8 @@ class FakeGeminiProvider:
             data=ReportStrategistDraft.model_validate(valid_draft_data()),
             usage=LLMUsage(
                 agent_name="report_strategist",
-                provider="google",
-                model="gemini-2.5-flash",
+                provider="openrouter",
+                model="nvidia/nemotron-3-super-120b-a12b",
                 input_tokens=1800,
                 output_tokens=1400,
                 reasoning_tokens=100,
@@ -104,7 +104,7 @@ class FakeGeminiProvider:
 def test_agent_finalizes_sources_warnings_and_word_count():
     context = report_context()
     result = asyncio.run(
-        ReportStrategistAgent(provider=FakeGeminiProvider()).run(context)
+        ReportStrategistAgent(provider=FakeOpenRouterProvider()).run(context)
     )
 
     assert result.data.company_name == context.company_name
@@ -117,7 +117,7 @@ def test_agent_finalizes_sources_warnings_and_word_count():
         "source_1",
         "market_source_1",
     }
-    assert result.usage.provider == "google"
+    assert result.usage.provider == "openrouter"
 
 
 def test_unknown_evidence_id_is_rejected():
