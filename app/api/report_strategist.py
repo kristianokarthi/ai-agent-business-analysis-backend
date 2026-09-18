@@ -7,12 +7,13 @@ from app.agents.report_strategist import (
     UnsafeStockRecommendationError,
     context_metrics,
 )
-from app.llm.gemini_provider import (
-    GeminiConfigurationError,
-    GeminiInvalidResponseError,
-    GeminiRateLimitError,
-    GeminiRequestError,
-    GeminiServiceError,
+from app.llm.openrouter_provider import (
+    OpenRouterConfigurationError,
+    OpenRouterCreditError,
+    OpenRouterInvalidResponseError,
+    OpenRouterRateLimitError,
+    OpenRouterRequestError,
+    OpenRouterServiceError,
 )
 from app.reports.context_builder import build_report_context
 from app.schemas.report_strategist import (
@@ -47,50 +48,53 @@ async def _run(context) -> ReportStrategistAPIResponse:
                 ),
             },
         ) from error
-    except (GeminiInvalidResponseError, ValidationError) as error:
+    except (OpenRouterInvalidResponseError, ValidationError) as error:
         raise HTTPException(
             status_code=502,
             detail={
-                "error_code": "invalid_gemini_output",
+                "error_code": "invalid_openrouter_output",
                 "message": (
-                    "Gemini could not produce a valid structured report. "
+                    "OpenRouter could not produce a valid structured report. "
                     "Please retry."
                 ),
             },
         ) from error
-    except GeminiRateLimitError as error:
+    except OpenRouterRateLimitError as error:
         raise HTTPException(
             status_code=429,
             detail={
-                "error_code": "gemini_rate_limit_exceeded",
+                "error_code": "openrouter_rate_limit_exceeded",
                 "message": (
-                    "The Gemini project rate or daily limit has been reached. "
+                    "The OpenRouter request limit has been reached. "
                     "Please wait and try again later."
                 ),
             },
         ) from error
-    except GeminiConfigurationError as error:
+    except (OpenRouterConfigurationError, OpenRouterCreditError) as error:
         raise HTTPException(
             status_code=503,
             detail={
-                "error_code": "gemini_configuration_error",
-                "message": "Gemini is not configured correctly on the backend.",
+                "error_code": "openrouter_configuration_error",
+                "message": (
+                    "OpenRouter is not configured correctly or does not have "
+                    "enough credit."
+                ),
             },
         ) from error
-    except GeminiRequestError as error:
+    except OpenRouterRequestError as error:
         raise HTTPException(
             status_code=400,
             detail={
-                "error_code": "gemini_bad_request",
-                "message": "Gemini rejected the report request.",
+                "error_code": "openrouter_bad_request",
+                "message": "OpenRouter rejected the report request.",
             },
         ) from error
-    except GeminiServiceError as error:
+    except OpenRouterServiceError as error:
         raise HTTPException(
             status_code=503,
             detail={
-                "error_code": "gemini_unavailable",
-                "message": "Gemini is temporarily unavailable.",
+                "error_code": "openrouter_unavailable",
+                "message": "OpenRouter is temporarily unavailable.",
             },
         ) from error
 

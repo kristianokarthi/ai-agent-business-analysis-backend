@@ -1,7 +1,7 @@
 import re
 from collections.abc import Iterable
 
-from app.llm.gemini_provider import GeminiProvider
+from app.llm.openrouter_provider import OpenRouterProvider
 from app.llm.types import StructuredLLMResult
 from app.prompts.report_strategist import build_report_strategist_prompt
 from app.schemas.report_context import ReportContext
@@ -164,8 +164,8 @@ def context_metrics(context: ReportContext) -> ReportContextMetrics:
 
 
 class ReportStrategistAgent:
-    def __init__(self, provider: GeminiProvider | None = None) -> None:
-        self.provider = provider or GeminiProvider()
+    def __init__(self, provider: OpenRouterProvider | None = None) -> None:
+        self.provider = provider or OpenRouterProvider()
 
     async def run(
         self,
