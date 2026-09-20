@@ -15,6 +15,7 @@ from app.api.market_evidence import router as market_evidence_router
 from app.api.public_signal_evidence import (
     router as public_signal_evidence_router,
 )
+from app.api.rag import router as rag_router
 from app.api.research import router as research_router
 from app.api.report_context import router as report_context_router
 from app.api.report_strategist import router as report_strategist_router
@@ -44,6 +45,7 @@ app.include_router(market_evidence_router)
 app.include_router(public_signal_evidence_router)
 app.include_router(report_context_router)
 app.include_router(report_strategist_router)
+app.include_router(rag_router)
 
 
 @app.get("/")
