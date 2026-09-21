@@ -186,18 +186,18 @@ async def preview_grounded_answer(
             < settings.rag_min_similarity
         ):
             return GroundedAnswerResponse(
-                status="out_of_scope",
+                status="insufficient_evidence",
                 question=request.question,
                 answer=(
-                    "I cannot answer that from the displayed report. "
-                    "Ask me about the company, findings, opportunities, "
-                    "risks, market, or customer evidence in this report."
+                    "I couldn't find enough relevant information in this report "
+                    "to answer that. Try naming the finding or risk you mean, "
+                    "or ask about the report's customer feedback."
                 ),
                 supporting_chunks=[],
                 evidence_ids=[],
                 sources=[],
                 limitations=[
-                    "No report section met the minimum relevance threshold."
+                    "The available report sections did not provide a sufficiently relevant match."
                 ],
                 retrieval_usage=search_result.usage,
                 generation_usage=None,

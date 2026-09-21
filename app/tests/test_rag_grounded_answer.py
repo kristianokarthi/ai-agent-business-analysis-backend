@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -12,6 +14,7 @@ from app.llm.types import StructuredLLMResult
 from app.main import app
 from app.schemas.llm import LLMUsage
 from app.schemas.rag import (
+    ChatMessage,
     GroundedAnswerDraft,
     GroundedAnswerStatus,
     ReportChunk,
@@ -68,6 +71,53 @@ class FakeLLMProvider:
                 output_tokens=40,
                 total_tokens=140,
             ),
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status,citations", [
+    ("answered", ["risk_02"]),
+    ("insufficient_evidence", []),
+    ("insufficient_evidence", ["risk_02"]),
+    ("out_of_scope", []),
+])
+async def test_partial_missing_and_unrelated_response_contract(status, citations):
+    class CapturingProvider(FakeLLMProvider):
+        async def generate_structured(self, **kwargs):
+            prompt = kwargs["system_prompt"]
+            assert "ANY useful part" in prompt
+            assert "pure explanation of missing information" in prompt
+            payload = json.loads(kwargs["user_prompt"])
+            assert payload["conversation_history"][0]["content"] == "We discussed post-sales support."
+            assert payload["question"] == "How could that affect the company?"
+            result = await super().generate_structured(**kwargs)
+            result.data.status = GroundedAnswerStatus(status)
+            result.data.answer = {
+                "answered": "Post-sales support may affect satisfaction and brand perception.",
+                "insufficient_evidence": "The report does not quantify revenue loss.",
+                "out_of_scope": "I can help with the report's findings, but not weather updates.",
+            }[status]
+            return result
+
+    result = await GroundedAnswerAgent(CapturingProvider(citations)).run(
+        "How could that affect the company?", matches(),
+        [ChatMessage(role="user", content="We discussed post-sales support.")],
+    )
+    assert result.data.status.value == status
+    assert result.data.supporting_chunk_ids == citations
+
+
+@pytest.mark.anyio
+async def test_out_of_scope_must_not_cite_report():
+    class OutOfScopeProvider(FakeLLMProvider):
+        async def generate_structured(self, **kwargs):
+            result = await super().generate_structured(**kwargs)
+            result.data.status = GroundedAnswerStatus.OUT_OF_SCOPE
+            return result
+
+    with pytest.raises(InvalidGroundedAnswerError):
+        await GroundedAnswerAgent(OutOfScopeProvider(["risk_02"])).run(
+            "What is the weather?", matches(), [],
         )
 
 
@@ -184,6 +234,6 @@ def test_low_relevance_question_is_rejected_without_llm_generation():
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["status"] == "out_of_scope"
+    assert payload["status"] == "insufficient_evidence"
     assert payload["supporting_chunks"] == []
     assert payload["generation_usage"] is None
