@@ -1,10 +1,11 @@
 import json
 import re
 
-from app.llm.groq_provider import GroqProvider
+from app.llm.openrouter_provider import OpenRouterProvider
 from app.llm.types import StructuredLLMResult
 from app.prompts.rag_answer import GROUNDED_ANSWER_SYSTEM_PROMPT
 from app.schemas.rag import (
+    ChatMessage,
     GroundedAnswerDraft,
     GroundedAnswerStatus,
     SemanticSearchMatch,
@@ -16,13 +17,14 @@ class InvalidGroundedAnswerError(Exception):
 
 
 class GroundedAnswerAgent:
-    def __init__(self, provider: GroqProvider) -> None:
+    def __init__(self, provider: OpenRouterProvider) -> None:
         self.provider = provider
 
     async def run(
         self,
         question: str,
         matches: list[SemanticSearchMatch],
+        conversation_history: list[ChatMessage],
     ) -> StructuredLLMResult[GroundedAnswerDraft]:
         retrieved_chunks = [
             {
@@ -40,6 +42,10 @@ class GroundedAnswerAgent:
             user_prompt=json.dumps(
                 {
                     "question": question,
+                    "conversation_history": [
+                        message.model_dump(mode="json")
+                        for message in conversation_history
+                    ],
                     "retrieved_chunks": retrieved_chunks,
                 },
                 ensure_ascii=False,
@@ -68,6 +74,13 @@ class GroundedAnswerAgent:
         ):
             raise InvalidGroundedAnswerError(
                 "An answered response must cite at least one retrieved chunk."
+            )
+        if (
+            result.data.status == GroundedAnswerStatus.OUT_OF_SCOPE
+            and returned_ids
+        ):
+            raise InvalidGroundedAnswerError(
+                "An out-of-scope response cannot cite report chunks."
             )
 
         prohibited_recommendation = re.compile(

@@ -6,7 +6,7 @@ from app.agents.rag_answer import (
     GroundedAnswerAgent,
     InvalidGroundedAnswerError,
 )
-from app.api.rag import get_embedding_provider, get_groq_provider
+from app.api.rag import get_chat_provider, get_embedding_provider
 from app.embeddings.gemini_provider import GeminiEmbeddingProvider
 from app.llm.types import StructuredLLMResult
 from app.main import app
@@ -62,7 +62,7 @@ class FakeLLMProvider:
             ),
             usage=LLMUsage(
                 agent_name="rag_grounded_answer",
-                provider="groq",
+                provider="openrouter",
                 model="test-model",
                 input_tokens=100,
                 output_tokens=40,
@@ -75,7 +75,7 @@ class FakeLLMProvider:
 async def test_grounded_answer_accepts_retrieved_chunk_reference():
     result = await GroundedAnswerAgent(
         FakeLLMProvider(["risk_02"])
-    ).run("What customer-service issue was reported?", matches())
+    ).run("What customer-service issue was reported?", matches(), [])
 
     assert result.data.supporting_chunk_ids == ["risk_02"]
 
@@ -85,7 +85,7 @@ async def test_grounded_answer_rejects_unsupported_chunk_reference():
     with pytest.raises(InvalidGroundedAnswerError):
         await GroundedAnswerAgent(
             FakeLLMProvider(["invented_chunk"])
-        ).run("What customer-service issue was reported?", matches())
+        ).run("What customer-service issue was reported?", matches(), [])
 
 
 def test_grounded_answer_preview_endpoint_returns_validated_sources():
@@ -118,7 +118,7 @@ def test_grounded_answer_preview_endpoint_returns_validated_sources():
     app.dependency_overrides[get_embedding_provider] = (
         lambda: embedding_provider
     )
-    app.dependency_overrides[get_groq_provider] = (
+    app.dependency_overrides[get_chat_provider] = (
         lambda: FakeLLMProvider(["risk_02"])
     )
     try:
@@ -143,4 +143,47 @@ def test_grounded_answer_preview_endpoint_returns_validated_sources():
     assert payload["evidence_ids"] == ["signal_review_1"]
     assert payload["sources"][0]["title"] == "Customer feedback sample"
     assert payload["retrieval_usage"]["requests"] == 2
-    assert payload["generation_usage"]["provider"] == "groq"
+    assert payload["generation_usage"]["provider"] == "openrouter"
+
+
+def test_low_relevance_question_is_rejected_without_llm_generation():
+    call_count = 0
+
+    async def embedding_handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        vector = [1, 0, 0] if call_count == 1 else [0, 1, 0]
+        return httpx.Response(
+            200,
+            json={"embeddings": [{"values": vector}]},
+        )
+
+    embedding_provider = GeminiEmbeddingProvider(
+        api_key="test-key",
+        dimensions=3,
+        transport=httpx.MockTransport(embedding_handler),
+    )
+    app.dependency_overrides[get_embedding_provider] = (
+        lambda: embedding_provider
+    )
+    app.dependency_overrides[get_chat_provider] = (
+        lambda: FakeLLMProvider(["risk_02"])
+    )
+    try:
+        response = TestClient(app).post(
+            "/api/rag/answer/preview",
+            json={
+                "question": "What is today's weather?",
+                "chunks": [matches()[0].chunk.model_dump(mode="json")],
+                "top_k": 1,
+                "conversation_history": [],
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "out_of_scope"
+    assert payload["supporting_chunks"] == []
+    assert payload["generation_usage"] is None

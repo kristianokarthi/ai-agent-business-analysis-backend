@@ -106,6 +106,17 @@ class SemanticSearchResponse(StrictSchema):
 class GroundedAnswerStatus(str, Enum):
     ANSWERED = "answered"
     INSUFFICIENT_EVIDENCE = "insufficient_evidence"
+    OUT_OF_SCOPE = "out_of_scope"
+
+
+class ChatRole(str, Enum):
+    USER = "user"
+    ASSISTANT = "assistant"
+
+
+class ChatMessage(StrictSchema):
+    role: ChatRole
+    content: str = Field(min_length=1, max_length=3000)
 
 
 class GroundedAnswerDraft(StrictSchema):
@@ -116,7 +127,10 @@ class GroundedAnswerDraft(StrictSchema):
 
 
 class GroundedAnswerRequest(SemanticSearchRequest):
-    pass
+    conversation_history: list[ChatMessage] = Field(
+        default_factory=list,
+        max_length=6,
+    )
 
 
 class GroundedAnswerResponse(StrictSchema):
@@ -128,4 +142,4 @@ class GroundedAnswerResponse(StrictSchema):
     sources: list[ReportCitationSource] = Field(max_length=40)
     limitations: list[str] = Field(max_length=3)
     retrieval_usage: EmbeddingUsage
-    generation_usage: LLMUsage
+    generation_usage: LLMUsage | None

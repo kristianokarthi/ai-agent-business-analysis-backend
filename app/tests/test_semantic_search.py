@@ -7,11 +7,13 @@ from fastapi.testclient import TestClient
 from app.api.rag import get_embedding_provider
 from app.embeddings.gemini_provider import GeminiEmbeddingProvider
 from app.main import app
+from app.rag.conversation import build_contextual_query
 from app.rag.semantic_search import cosine_similarity, search_report_chunks
 from app.schemas.rag import (
     ReportChunk,
     ReportChunkSection,
     SemanticSearchRequest,
+    ChatMessage,
 )
 
 
@@ -62,6 +64,25 @@ def semantic_transport() -> httpx.MockTransport:
 def test_cosine_similarity_uses_normalized_vectors():
     assert cosine_similarity([1, 0], [1, 0]) == 1
     assert cosine_similarity([1, 0], [0, 1]) == 0
+
+
+def test_follow_up_query_includes_recent_conversation():
+    query = build_contextual_query(
+        "How could that affect the company?",
+        [
+            ChatMessage(
+                role="user",
+                content="What customer-service issue was reported?",
+            ),
+            ChatMessage(
+                role="assistant",
+                content="The report mentions inadequate post-sales support.",
+            ),
+        ],
+    )
+
+    assert "inadequate post-sales support" in query
+    assert "How could that affect the company?" in query
 
 
 @pytest.mark.anyio
