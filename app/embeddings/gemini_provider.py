@@ -11,6 +11,8 @@ from app.schemas.rag import ReportChunk
 
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 REQUEST_TIMEOUT_SECONDS = 30.0
+# Application batch size, independent of the report's chunk limit.
+DOCUMENT_BATCH_SIZE = 50
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -39,6 +41,7 @@ class GeminiEmbeddingServiceError(GeminiEmbeddingError):
 class EmbeddingBatch:
     vectors: list[list[float]]
     input_tokens: int
+    requests: int = 1
 
 
 def _normalize(vector: list[float]) -> list[float]:
@@ -186,14 +189,25 @@ class GeminiEmbeddingProvider:
             }
             for chunk in chunks
         ]
-        batch = await self._embed_requests(requests)
+        vectors = []
+        input_tokens = 0
+        request_count = 0
+        for start in range(0, len(requests), DOCUMENT_BATCH_SIZE):
+            part = await self._embed_requests(
+                requests[start:start + DOCUMENT_BATCH_SIZE]
+            )
+            vectors.extend(part.vectors)
+            input_tokens += part.input_tokens
+            request_count += part.requests
+        batch = EmbeddingBatch(vectors, input_tokens, request_count)
         logger.info(
             "Embedding usage | provider=gemini | model=%s | task=document | "
-            "items=%d | dimensions=%d | input_tokens=%d | requests=1",
+            "items=%d | dimensions=%d | input_tokens=%d | requests=%d",
             self.model,
             len(chunks),
             self.dimensions,
             batch.input_tokens,
+            batch.requests,
         )
         return batch
 
