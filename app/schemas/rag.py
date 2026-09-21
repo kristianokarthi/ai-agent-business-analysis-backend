@@ -48,3 +48,32 @@ class ReportChunkPreviewResponse(StrictSchema):
     total_chunks: int = Field(ge=1)
     section_counts: dict[ReportChunkSection, int]
     chunks: list[ReportChunk] = Field(min_length=1, max_length=120)
+
+
+class EmbeddingPreviewRequest(StrictSchema):
+    chunks: list[ReportChunk] = Field(min_length=1, max_length=50)
+
+
+class ChunkEmbeddingPreview(StrictSchema):
+    chunk_id: str
+    section: ReportChunkSection
+    title: str
+    dimensions: int = Field(ge=1)
+    vector_preview: list[float] = Field(min_length=1, max_length=8)
+
+
+class EmbeddingUsage(StrictSchema):
+    provider: str
+    model: str
+    input_tokens: int = Field(ge=0)
+    requests: int = Field(ge=1)
+
+
+class EmbeddingPreviewResponse(StrictSchema):
+    total_embeddings: int = Field(ge=1)
+    dimensions: int = Field(ge=1)
+    embeddings: list[ChunkEmbeddingPreview] = Field(
+        min_length=1,
+        max_length=50,
+    )
+    usage: EmbeddingUsage

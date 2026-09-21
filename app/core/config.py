@@ -18,6 +18,14 @@ class Settings:
         "OPENROUTER_MODEL",
         "nvidia/nemotron-3-super-120b-a12b",
     )
+    gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
+    gemini_embedding_model: str = os.getenv(
+        "GEMINI_EMBEDDING_MODEL",
+        "gemini-embedding-001",
+    )
+    gemini_embedding_dimensions: int = int(
+        os.getenv("GEMINI_EMBEDDING_DIMENSIONS", "768")
+    )
     research_tool_test_key: str = os.getenv(
         "RESEARCH_TOOL_TEST_KEY",
         "",
