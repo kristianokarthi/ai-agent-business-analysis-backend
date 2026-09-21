@@ -80,32 +80,10 @@ class GeminiEmbeddingProvider:
                 "GEMINI_EMBEDDING_DIMENSIONS must be between 1 and 3072."
             )
 
-    async def embed_documents(
+    async def _embed_requests(
         self,
-        chunks: list[ReportChunk],
+        requests: list[dict[str, Any]],
     ) -> EmbeddingBatch:
-        model_name = f"models/{self.model}"
-        requests = [
-            {
-                "model": model_name,
-                "content": {
-                    "parts": [
-                        {
-                            "text": (
-                                f"Section: {chunk.section.value}\n"
-                                f"Title: {chunk.title}\n"
-                                f"Content: {chunk.content}"
-                            )
-                        }
-                    ]
-                },
-                "taskType": "RETRIEVAL_DOCUMENT",
-                "title": chunk.title,
-                "outputDimensionality": self.dimensions,
-            }
-            for chunk in chunks
-        ]
-
         try:
             async with httpx.AsyncClient(
                 base_url=GEMINI_API_BASE,
@@ -169,7 +147,7 @@ class GeminiEmbeddingProvider:
                 "Gemini returned an invalid embedding response."
             ) from error
 
-        if len(vectors) != len(chunks):
+        if len(vectors) != len(requests):
             raise GeminiEmbeddingServiceError(
                 "Gemini returned a different number of embeddings than requested."
             )
@@ -178,15 +156,63 @@ class GeminiEmbeddingProvider:
                 "Gemini returned an unexpected embedding dimension."
             )
 
-        logger.info(
-            "Embedding usage | provider=gemini | model=%s | chunks=%d | "
-            "dimensions=%d | input_tokens=%d | requests=1",
-            self.model,
-            len(chunks),
-            self.dimensions,
-            input_tokens,
-        )
         return EmbeddingBatch(
             vectors=vectors,
             input_tokens=input_tokens,
         )
+
+    async def embed_documents(
+        self,
+        chunks: list[ReportChunk],
+    ) -> EmbeddingBatch:
+        model_name = f"models/{self.model}"
+        requests = [
+            {
+                "model": model_name,
+                "content": {
+                    "parts": [
+                        {
+                            "text": (
+                                f"Section: {chunk.section.value}\n"
+                                f"Title: {chunk.title}\n"
+                                f"Content: {chunk.content}"
+                            )
+                        }
+                    ]
+                },
+                "taskType": "RETRIEVAL_DOCUMENT",
+                "title": chunk.title,
+                "outputDimensionality": self.dimensions,
+            }
+            for chunk in chunks
+        ]
+        batch = await self._embed_requests(requests)
+        logger.info(
+            "Embedding usage | provider=gemini | model=%s | task=document | "
+            "items=%d | dimensions=%d | input_tokens=%d | requests=1",
+            self.model,
+            len(chunks),
+            self.dimensions,
+            batch.input_tokens,
+        )
+        return batch
+
+    async def embed_question(self, question: str) -> EmbeddingBatch:
+        batch = await self._embed_requests(
+            [
+                {
+                    "model": f"models/{self.model}",
+                    "content": {"parts": [{"text": question}]},
+                    "taskType": "QUESTION_ANSWERING",
+                    "outputDimensionality": self.dimensions,
+                }
+            ]
+        )
+        logger.info(
+            "Embedding usage | provider=gemini | model=%s | task=question | "
+            "items=1 | dimensions=%d | input_tokens=%d | requests=1",
+            self.model,
+            self.dimensions,
+            batch.input_tokens,
+        )
+        return batch
