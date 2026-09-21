@@ -1,5 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException
+from groq import (
+    APIConnectionError,
+    BadRequestError,
+    InternalServerError,
+    RateLimitError,
+)
+from pydantic import ValidationError
 
+from app.agents.rag_answer import (
+    GroundedAnswerAgent,
+    InvalidGroundedAnswerError,
+)
 from app.embeddings.gemini_provider import (
     GeminiEmbeddingError,
     GeminiEmbeddingConfigurationError,
@@ -9,11 +20,14 @@ from app.embeddings.gemini_provider import (
 )
 from app.rag.report_chunker import chunk_strategic_report
 from app.rag.semantic_search import search_report_chunks
+from app.llm.groq_provider import GroqProvider
 from app.schemas.rag import (
     ChunkEmbeddingPreview,
     EmbeddingPreviewRequest,
     EmbeddingPreviewResponse,
     EmbeddingUsage,
+    GroundedAnswerRequest,
+    GroundedAnswerResponse,
     ReportChunkPreviewRequest,
     ReportChunkPreviewResponse,
     SemanticSearchRequest,
@@ -29,6 +43,19 @@ router = APIRouter(
 
 def get_embedding_provider() -> GeminiEmbeddingProvider:
     return GeminiEmbeddingProvider()
+
+
+def get_groq_provider() -> GroqProvider:
+    try:
+        return GroqProvider()
+    except ValueError as error:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error_code": "groq_configuration_error",
+                "message": str(error),
+            },
+        ) from error
 
 
 def embedding_error_to_http(error: GeminiEmbeddingError) -> HTTPException:
@@ -126,3 +153,101 @@ async def preview_semantic_search(
         return await search_report_chunks(request, provider)
     except GeminiEmbeddingError as error:
         raise embedding_error_to_http(error) from error
+
+
+@router.post(
+    "/answer/preview",
+    response_model=GroundedAnswerResponse,
+)
+async def preview_grounded_answer(
+    request: GroundedAnswerRequest,
+    embedding_provider: GeminiEmbeddingProvider = Depends(
+        get_embedding_provider
+    ),
+    llm_provider: GroqProvider = Depends(get_groq_provider),
+) -> GroundedAnswerResponse:
+    """Retrieve relevant chunks and answer strictly from their evidence."""
+    try:
+        search_result = await search_report_chunks(
+            request,
+            embedding_provider,
+        )
+        generation = await GroundedAnswerAgent(llm_provider).run(
+            request.question,
+            search_result.matches,
+        )
+    except GeminiEmbeddingError as error:
+        raise embedding_error_to_http(error) from error
+    except InvalidGroundedAnswerError as error:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error_code": "invalid_grounded_answer",
+                "message": (
+                    "The AI answer referenced unsupported report evidence. "
+                    "Please retry."
+                ),
+            },
+        ) from error
+    except RateLimitError as error:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error_code": "groq_rate_limit_exceeded",
+                "message": (
+                    "The Groq free-tier limit has been reached. "
+                    "Please wait and retry."
+                ),
+            },
+        ) from error
+    except (BadRequestError, ValidationError, ValueError) as error:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error_code": "invalid_grounded_answer_output",
+                "message": (
+                    "The AI model could not produce a valid grounded answer. "
+                    "Please retry."
+                ),
+            },
+        ) from error
+    except (APIConnectionError, InternalServerError) as error:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error_code": "groq_unavailable",
+                "message": (
+                    "Groq is temporarily unavailable. Please retry later."
+                ),
+            },
+        ) from error
+
+    match_by_id = {
+        match.chunk.chunk_id: match
+        for match in search_result.matches
+    }
+    supporting_chunks = [
+        match_by_id[chunk_id]
+        for chunk_id in generation.data.supporting_chunk_ids
+    ]
+
+    evidence_ids: list[str] = []
+    sources_by_id = {}
+    for match in supporting_chunks:
+        for evidence_id in match.chunk.evidence_ids:
+            if evidence_id not in evidence_ids:
+                evidence_ids.append(evidence_id)
+        for source in match.chunk.sources:
+            sources_by_id.setdefault(source.evidence_id, source)
+
+    return GroundedAnswerResponse(
+        status=generation.data.status,
+        question=request.question,
+        answer=generation.data.answer,
+        supporting_chunks=supporting_chunks,
+        evidence_ids=evidence_ids,
+        sources=list(sources_by_id.values()),
+        limitations=generation.data.limitations,
+        retrieval_usage=search_result.usage,
+        generation_usage=generation.usage,
+    )
