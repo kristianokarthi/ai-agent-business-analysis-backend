@@ -67,6 +67,6 @@ async def search_report_chunks(
                 document_batch.input_tokens
                 + question_batch.input_tokens
             ),
-            requests=2,
+            requests=document_batch.requests + question_batch.requests,
         ),
     )

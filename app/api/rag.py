@@ -139,7 +139,7 @@ async def preview_chunk_embeddings(
             provider="gemini",
             model=provider.model,
             input_tokens=batch.input_tokens,
-            requests=1,
+            requests=batch.requests,
         ),
     )
 

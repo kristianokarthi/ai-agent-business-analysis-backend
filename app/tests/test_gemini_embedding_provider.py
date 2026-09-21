@@ -4,6 +4,7 @@ import math
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from app.api.rag import get_embedding_provider
 from app.embeddings.gemini_provider import (
@@ -12,7 +13,83 @@ from app.embeddings.gemini_provider import (
     GeminiEmbeddingRateLimitError,
 )
 from app.main import app
-from app.schemas.rag import ReportChunk, ReportChunkSection
+from app.schemas.rag import (
+    EmbeddingPreviewRequest, GroundedAnswerRequest,
+    ReportChunk, ReportChunkSection, SemanticSearchRequest,
+)
+from app.rag.semantic_search import search_report_chunks
+
+
+@pytest.mark.parametrize("schema", [
+    EmbeddingPreviewRequest, SemanticSearchRequest, GroundedAnswerRequest,
+])
+def test_chunk_limit_accepts_120_and_rejects_121(schema):
+    payload = {"chunks": chunks() * 60}
+    if schema is not EmbeddingPreviewRequest:
+        payload["question"] = "What are the risks?"
+    assert len(schema(**payload).chunks) == 120
+    payload["chunks"].append(chunks()[0])
+    with pytest.raises(ValidationError):
+        schema(**payload)
+
+
+@pytest.mark.anyio
+async def test_large_report_batches_preserve_ranking_and_usage():
+    sizes = []
+    offset = 0
+
+    async def handler(request):
+        nonlocal offset
+        items = json.loads(request.content)["requests"]
+        sizes.append(len(items))
+        if items[0]["taskType"] == "QUESTION_ANSWERING":
+            values = [[120, 1]]
+        else:
+            values = [[index + 1, 1] for index in range(offset, offset + len(items))]
+            offset += len(items)
+        return httpx.Response(200, json={
+            "embeddings": [{"values": value} for value in values],
+            "usageMetadata": {"promptTokenCount": len(items) * 2},
+        })
+
+    provider = GeminiEmbeddingProvider(
+        api_key="test-key", dimensions=2, transport=httpx.MockTransport(handler),
+    )
+    report_chunks = [
+        chunks()[0].model_copy(update={"chunk_id": f"risk_{index}"})
+        for index in range(120)
+    ]
+    result = await search_report_chunks(
+        SemanticSearchRequest(question="What are the risks?", chunks=report_chunks),
+        provider,
+    )
+    assert sizes == [50, 50, 20, 1]
+    assert result.matches[0].chunk.chunk_id == "risk_119"
+    assert result.total_chunks_searched == 120
+    assert result.matches_returned == 3
+    assert result.usage.requests == 4
+    assert result.usage.input_tokens == 242
+
+
+@pytest.mark.anyio
+async def test_failed_second_batch_does_not_return_partial_embeddings():
+    sizes = []
+
+    async def handler(request):
+        items = json.loads(request.content)["requests"]
+        sizes.append(len(items))
+        if len(sizes) == 2:
+            return httpx.Response(429)
+        return httpx.Response(200, json={
+            "embeddings": [{"values": [1, 0]} for _ in items],
+        })
+
+    provider = GeminiEmbeddingProvider(
+        api_key="test-key", dimensions=2, transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(GeminiEmbeddingRateLimitError):
+        await provider.embed_documents(chunks() * 60)
+    assert sizes == [50, 50]
 
 
 def chunks() -> list[ReportChunk]:

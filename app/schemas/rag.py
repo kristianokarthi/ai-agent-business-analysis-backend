@@ -52,7 +52,7 @@ class ReportChunkPreviewResponse(StrictSchema):
 
 
 class EmbeddingPreviewRequest(StrictSchema):
-    chunks: list[ReportChunk] = Field(min_length=1, max_length=50)
+    chunks: list[ReportChunk] = Field(min_length=1, max_length=120)
 
 
 class ChunkEmbeddingPreview(StrictSchema):
@@ -75,14 +75,14 @@ class EmbeddingPreviewResponse(StrictSchema):
     dimensions: int = Field(ge=1)
     embeddings: list[ChunkEmbeddingPreview] = Field(
         min_length=1,
-        max_length=50,
+        max_length=120,
     )
     usage: EmbeddingUsage
 
 
 class SemanticSearchRequest(StrictSchema):
     question: str = Field(min_length=3, max_length=500)
-    chunks: list[ReportChunk] = Field(min_length=1, max_length=50)
+    chunks: list[ReportChunk] = Field(min_length=1, max_length=120)
     top_k: int = Field(default=3, ge=1, le=10)
 
 
