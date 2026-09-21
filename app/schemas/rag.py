@@ -3,6 +3,7 @@ from enum import Enum
 from pydantic import Field
 
 from app.schemas.fact_finder import StrictSchema
+from app.schemas.llm import LLMUsage
 from app.schemas.report_strategist import (
     ReportCitationSource,
     StrategicReport,
@@ -100,3 +101,31 @@ class SemanticSearchResponse(StrictSchema):
         max_length=10,
     )
     usage: EmbeddingUsage
+
+
+class GroundedAnswerStatus(str, Enum):
+    ANSWERED = "answered"
+    INSUFFICIENT_EVIDENCE = "insufficient_evidence"
+
+
+class GroundedAnswerDraft(StrictSchema):
+    status: GroundedAnswerStatus
+    answer: str = Field(min_length=1, max_length=3000)
+    supporting_chunk_ids: list[str] = Field(max_length=5)
+    limitations: list[str] = Field(max_length=3)
+
+
+class GroundedAnswerRequest(SemanticSearchRequest):
+    pass
+
+
+class GroundedAnswerResponse(StrictSchema):
+    status: GroundedAnswerStatus
+    question: str
+    answer: str
+    supporting_chunks: list[SemanticSearchMatch] = Field(max_length=5)
+    evidence_ids: list[str] = Field(max_length=40)
+    sources: list[ReportCitationSource] = Field(max_length=40)
+    limitations: list[str] = Field(max_length=3)
+    retrieval_usage: EmbeddingUsage
+    generation_usage: LLMUsage
