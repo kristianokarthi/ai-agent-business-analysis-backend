@@ -1,11 +1,4 @@
 from fastapi import APIRouter, Depends, HTTPException
-from groq import (
-    APIConnectionError,
-    BadRequestError,
-    InternalServerError,
-    RateLimitError,
-)
-from pydantic import ValidationError
 
 from app.agents.rag_answer import (
     GroundedAnswerAgent,
@@ -18,9 +11,20 @@ from app.embeddings.gemini_provider import (
     GeminiEmbeddingRateLimitError,
     GeminiEmbeddingRequestError,
 )
+from app.core.config import settings
+from app.llm.openrouter_provider import (
+    OpenRouterConfigurationError,
+    OpenRouterCreditError,
+    OpenRouterInvalidResponseError,
+    OpenRouterProvider,
+    OpenRouterRateLimitError,
+    OpenRouterRequestError,
+    OpenRouterServiceError,
+    OpenRouterTruncatedResponseError,
+)
+from app.rag.conversation import build_contextual_query
 from app.rag.report_chunker import chunk_strategic_report
 from app.rag.semantic_search import search_report_chunks
-from app.llm.groq_provider import GroqProvider
 from app.schemas.rag import (
     ChunkEmbeddingPreview,
     EmbeddingPreviewRequest,
@@ -45,14 +49,14 @@ def get_embedding_provider() -> GeminiEmbeddingProvider:
     return GeminiEmbeddingProvider()
 
 
-def get_groq_provider() -> GroqProvider:
+def get_chat_provider() -> OpenRouterProvider:
     try:
-        return GroqProvider()
-    except ValueError as error:
+        return OpenRouterProvider(model=settings.openrouter_chat_model)
+    except OpenRouterConfigurationError as error:
         raise HTTPException(
             status_code=503,
             detail={
-                "error_code": "groq_configuration_error",
+                "error_code": "openrouter_configuration_error",
                 "message": str(error),
             },
         ) from error
@@ -164,17 +168,44 @@ async def preview_grounded_answer(
     embedding_provider: GeminiEmbeddingProvider = Depends(
         get_embedding_provider
     ),
-    llm_provider: GroqProvider = Depends(get_groq_provider),
+    llm_provider: OpenRouterProvider = Depends(get_chat_provider),
 ) -> GroundedAnswerResponse:
     """Retrieve relevant chunks and answer strictly from their evidence."""
     try:
+        contextual_query = build_contextual_query(
+            request.question,
+            request.conversation_history,
+        )
         search_result = await search_report_chunks(
             request,
             embedding_provider,
+            query_text=contextual_query,
         )
+        if (
+            search_result.matches[0].similarity_score
+            < settings.rag_min_similarity
+        ):
+            return GroundedAnswerResponse(
+                status="out_of_scope",
+                question=request.question,
+                answer=(
+                    "I cannot answer that from the displayed report. "
+                    "Ask me about the company, findings, opportunities, "
+                    "risks, market, or customer evidence in this report."
+                ),
+                supporting_chunks=[],
+                evidence_ids=[],
+                sources=[],
+                limitations=[
+                    "No report section met the minimum relevance threshold."
+                ],
+                retrieval_usage=search_result.usage,
+                generation_usage=None,
+            )
         generation = await GroundedAnswerAgent(llm_provider).run(
             request.question,
             search_result.matches,
+            request.conversation_history,
         )
     except GeminiEmbeddingError as error:
         raise embedding_error_to_http(error) from error
@@ -189,18 +220,21 @@ async def preview_grounded_answer(
                 ),
             },
         ) from error
-    except RateLimitError as error:
+    except OpenRouterRateLimitError as error:
         raise HTTPException(
             status_code=429,
             detail={
-                "error_code": "groq_rate_limit_exceeded",
+                "error_code": "openrouter_rate_limit_exceeded",
                 "message": (
-                    "The Groq free-tier limit has been reached. "
+                    "The OpenRouter free-tier limit has been reached. "
                     "Please wait and retry."
                 ),
             },
         ) from error
-    except (BadRequestError, ValidationError, ValueError) as error:
+    except (
+        OpenRouterInvalidResponseError,
+        OpenRouterTruncatedResponseError,
+    ) as error:
         raise HTTPException(
             status_code=502,
             detail={
@@ -211,13 +245,29 @@ async def preview_grounded_answer(
                 ),
             },
         ) from error
-    except (APIConnectionError, InternalServerError) as error:
+    except OpenRouterCreditError as error:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "error_code": "openrouter_credit_error",
+                "message": str(error),
+            },
+        ) from error
+    except OpenRouterRequestError as error:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "openrouter_bad_request",
+                "message": str(error),
+            },
+        ) from error
+    except OpenRouterServiceError as error:
         raise HTTPException(
             status_code=503,
             detail={
-                "error_code": "groq_unavailable",
+                "error_code": "openrouter_unavailable",
                 "message": (
-                    "Groq is temporarily unavailable. Please retry later."
+                    "OpenRouter is temporarily unavailable. Please retry later."
                 ),
             },
         ) from error

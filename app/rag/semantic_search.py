@@ -23,9 +23,12 @@ def cosine_similarity(
 async def search_report_chunks(
     request: SemanticSearchRequest,
     provider: GeminiEmbeddingProvider,
+    query_text: str | None = None,
 ) -> SemanticSearchResponse:
     document_batch = await provider.embed_documents(request.chunks)
-    question_batch = await provider.embed_question(request.question)
+    question_batch = await provider.embed_question(
+        query_text or request.question
+    )
     question_vector = question_batch.vectors[0]
 
     ranked = sorted(
