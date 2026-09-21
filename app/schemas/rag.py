@@ -77,3 +77,26 @@ class EmbeddingPreviewResponse(StrictSchema):
         max_length=50,
     )
     usage: EmbeddingUsage
+
+
+class SemanticSearchRequest(StrictSchema):
+    question: str = Field(min_length=3, max_length=500)
+    chunks: list[ReportChunk] = Field(min_length=1, max_length=50)
+    top_k: int = Field(default=3, ge=1, le=10)
+
+
+class SemanticSearchMatch(StrictSchema):
+    rank: int = Field(ge=1)
+    similarity_score: float = Field(ge=-1, le=1)
+    chunk: ReportChunk
+
+
+class SemanticSearchResponse(StrictSchema):
+    question: str
+    total_chunks_searched: int = Field(ge=1)
+    matches_returned: int = Field(ge=1)
+    matches: list[SemanticSearchMatch] = Field(
+        min_length=1,
+        max_length=10,
+    )
+    usage: EmbeddingUsage

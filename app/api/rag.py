@@ -1,13 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.embeddings.gemini_provider import (
+    GeminiEmbeddingError,
     GeminiEmbeddingConfigurationError,
     GeminiEmbeddingProvider,
     GeminiEmbeddingRateLimitError,
     GeminiEmbeddingRequestError,
-    GeminiEmbeddingServiceError,
 )
 from app.rag.report_chunker import chunk_strategic_report
+from app.rag.semantic_search import search_report_chunks
 from app.schemas.rag import (
     ChunkEmbeddingPreview,
     EmbeddingPreviewRequest,
@@ -15,6 +16,8 @@ from app.schemas.rag import (
     EmbeddingUsage,
     ReportChunkPreviewRequest,
     ReportChunkPreviewResponse,
+    SemanticSearchRequest,
+    SemanticSearchResponse,
 )
 
 
@@ -26,6 +29,40 @@ router = APIRouter(
 
 def get_embedding_provider() -> GeminiEmbeddingProvider:
     return GeminiEmbeddingProvider()
+
+
+def embedding_error_to_http(error: GeminiEmbeddingError) -> HTTPException:
+    if isinstance(error, GeminiEmbeddingConfigurationError):
+        return HTTPException(
+            status_code=503,
+            detail={
+                "error_code": "gemini_embedding_configuration_error",
+                "message": str(error),
+            },
+        )
+    if isinstance(error, GeminiEmbeddingRateLimitError):
+        return HTTPException(
+            status_code=429,
+            detail={
+                "error_code": "gemini_embedding_rate_limit_exceeded",
+                "message": str(error),
+            },
+        )
+    if isinstance(error, GeminiEmbeddingRequestError):
+        return HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "invalid_gemini_embedding_request",
+                "message": str(error),
+            },
+        )
+    return HTTPException(
+        status_code=503,
+        detail={
+            "error_code": "gemini_embedding_unavailable",
+            "message": str(error),
+        },
+    )
 
 
 @router.post(
@@ -50,38 +87,8 @@ async def preview_chunk_embeddings(
     """Generate document embeddings while exposing only a readable preview."""
     try:
         batch = await provider.embed_documents(request.chunks)
-    except GeminiEmbeddingConfigurationError as error:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error_code": "gemini_embedding_configuration_error",
-                "message": str(error),
-            },
-        ) from error
-    except GeminiEmbeddingRateLimitError as error:
-        raise HTTPException(
-            status_code=429,
-            detail={
-                "error_code": "gemini_embedding_rate_limit_exceeded",
-                "message": str(error),
-            },
-        ) from error
-    except GeminiEmbeddingRequestError as error:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error_code": "invalid_gemini_embedding_request",
-                "message": str(error),
-            },
-        ) from error
-    except GeminiEmbeddingServiceError as error:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error_code": "gemini_embedding_unavailable",
-                "message": str(error),
-            },
-        ) from error
+    except GeminiEmbeddingError as error:
+        raise embedding_error_to_http(error) from error
 
     embeddings = [
         ChunkEmbeddingPreview(
@@ -104,3 +111,18 @@ async def preview_chunk_embeddings(
             requests=1,
         ),
     )
+
+
+@router.post(
+    "/search/preview",
+    response_model=SemanticSearchResponse,
+)
+async def preview_semantic_search(
+    request: SemanticSearchRequest,
+    provider: GeminiEmbeddingProvider = Depends(get_embedding_provider),
+) -> SemanticSearchResponse:
+    """Rank supplied report chunks by semantic relevance to a question."""
+    try:
+        return await search_report_chunks(request, provider)
+    except GeminiEmbeddingError as error:
+        raise embedding_error_to_http(error) from error

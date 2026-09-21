@@ -78,6 +78,36 @@ async def test_provider_maps_rate_limit_error():
         await provider.embed_documents(chunks())
 
 
+@pytest.mark.anyio
+async def test_provider_embeds_question_for_question_answering():
+    async def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        assert len(payload["requests"]) == 1
+        assert payload["requests"][0]["taskType"] == "QUESTION_ANSWERING"
+        assert payload["requests"][0]["content"]["parts"][0]["text"] == (
+            "What could reduce profitability?"
+        )
+        return httpx.Response(
+            200,
+            json={
+                "embeddings": [{"values": [2, 0, 0]}],
+                "usageMetadata": {"promptTokenCount": 6},
+            },
+        )
+
+    provider = GeminiEmbeddingProvider(
+        api_key="test-key",
+        dimensions=3,
+        transport=httpx.MockTransport(handler),
+    )
+    result = await provider.embed_question(
+        "What could reduce profitability?"
+    )
+
+    assert result.vectors[0] == [1, 0, 0]
+    assert result.input_tokens == 6
+
+
 def test_provider_requires_api_key():
     with pytest.raises(GeminiEmbeddingConfigurationError):
         GeminiEmbeddingProvider(api_key="")
